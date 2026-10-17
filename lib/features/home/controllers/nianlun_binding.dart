@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -27,6 +28,7 @@ class NianlunBinding {
     required this.context,
     required this.chat,
     required this.chatController,
+    this.httpClient,
   });
 
   static const Duration pollInterval = Duration(minutes: 1);
@@ -35,6 +37,9 @@ class NianlunBinding {
   final BuildContext context;
   final ChatService chat;
   final ChatController chatController;
+
+  /// 测试时注入；正常运行为 null（每次请求自己开关连接）。
+  final http.Client? httpClient;
 
   Timer? _timer;
   bool _disposed = false;
@@ -76,6 +81,7 @@ class NianlunBinding {
     final client = NianlunClient(
       baseUrl: assistant.nianlunBaseUrl,
       token: assistant.nianlunToken,
+      httpClient: httpClient,
     );
     if (!client.isConfigured) return;
     // 需要 BuildContext 的都在第一个 await 之前算好。
@@ -187,6 +193,7 @@ class NianlunBinding {
     final client = NianlunClient(
       baseUrl: assistant.nianlunBaseUrl,
       token: assistant.nianlunToken,
+      httpClient: httpClient,
     );
     if (!client.isConfigured) return;
     final windowId = assistant.nianlunWindowId;
