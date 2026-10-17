@@ -348,6 +348,9 @@ class AssistantProvider extends ChangeNotifier {
       background: backgroundCopy,
       mcpServerIds: List<String>.of(source.mcpServerIds),
       localToolIds: List<String>.of(source.localToolIds),
+      // 年轮窗口是一对一的：复制出来的助手要自己重新开一个。
+      nianlunEnabled: false,
+      nianlunWindowId: '',
       defaultWorkspaceId: source.defaultWorkspaceId,
       skillIds: source.skillIds == null
           ? null

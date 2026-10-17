@@ -97,6 +97,11 @@ class Assistant {
   final List<PresetMessage> presetMessages;
   // Regex replacement rules
   final List<AssistantRegex> regexRules;
+  // 年轮（nianlun）：欲望本 / 自唤醒服务器。只对这个助手生效。
+  final bool nianlunEnabled;
+  final String nianlunBaseUrl;
+  final String nianlunToken;
+  final String nianlunWindowId;
 
   const Assistant({
     required this.id,
@@ -145,6 +150,10 @@ class Assistant {
     this.useIso8601TimeFormat = false,
     this.presetMessages = const <PresetMessage>[],
     this.regexRules = const <AssistantRegex>[],
+    this.nianlunEnabled = false,
+    this.nianlunBaseUrl = '',
+    this.nianlunToken = '',
+    this.nianlunWindowId = '',
   });
 
   Assistant copyWith({
@@ -193,6 +202,10 @@ class Assistant {
     bool? useIso8601TimeFormat,
     List<PresetMessage>? presetMessages,
     List<AssistantRegex>? regexRules,
+    bool? nianlunEnabled,
+    String? nianlunBaseUrl,
+    String? nianlunToken,
+    String? nianlunWindowId,
     bool clearChatModel = false,
     bool clearDefaultWorkspaceId = false,
     bool clearSkillIds = false,
@@ -278,6 +291,10 @@ class Assistant {
       useIso8601TimeFormat: useIso8601TimeFormat ?? this.useIso8601TimeFormat,
       presetMessages: presetMessages ?? this.presetMessages,
       regexRules: regexRules ?? this.regexRules,
+      nianlunEnabled: nianlunEnabled ?? this.nianlunEnabled,
+      nianlunBaseUrl: nianlunBaseUrl ?? this.nianlunBaseUrl,
+      nianlunToken: nianlunToken ?? this.nianlunToken,
+      nianlunWindowId: nianlunWindowId ?? this.nianlunWindowId,
     );
   }
 
@@ -327,6 +344,10 @@ class Assistant {
     'useIso8601TimeFormat': useIso8601TimeFormat,
     'presetMessages': PresetMessage.encodeList(presetMessages),
     'regexRules': regexRules.map((e) => e.toJson()).toList(),
+    'nianlunEnabled': nianlunEnabled,
+    'nianlunBaseUrl': nianlunBaseUrl,
+    'nianlunToken': nianlunToken,
+    'nianlunWindowId': nianlunWindowId,
   };
 
   static double _readGradientBackgroundPhase(Object? value) =>
@@ -472,6 +493,10 @@ class Assistant {
       }
       return const <AssistantRegex>[];
     })(),
+    nianlunEnabled: json['nianlunEnabled'] as bool? ?? false,
+    nianlunBaseUrl: (json['nianlunBaseUrl'] as String?) ?? '',
+    nianlunToken: (json['nianlunToken'] as String?) ?? '',
+    nianlunWindowId: (json['nianlunWindowId'] as String?) ?? '',
   );
 
   static String memorySmartAddModeToString(MemorySmartAddMode mode) {

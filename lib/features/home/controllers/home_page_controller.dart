@@ -47,6 +47,7 @@ import 'stream_controller.dart' as stream_ctrl;
 import 'generation_controller.dart';
 import 'scroll_controller.dart' as scroll_ctrl;
 import 'home_view_model.dart';
+import 'nianlun_binding.dart';
 import '../services/message_builder_service.dart';
 import '../services/message_generation_service.dart';
 import '../services/local_tools_service.dart';
@@ -156,6 +157,7 @@ class HomePageController extends ChangeNotifier {
   late scroll_ctrl.ChatScrollController _scrollCtrl;
 
   McpProvider? _mcpProvider;
+  NianlunBinding? _nianlun;
   StreamSubscription<ChatAction>? _chatActionSub;
   StreamSubscription<String>? _notificationTapSub;
 
@@ -556,6 +558,7 @@ class HomePageController extends ChangeNotifier {
     _viewModel.onConversationSwitched = () {
       _restoreMessageUiState();
       _scrollCtrl.positionAtBottomOnNextLayout();
+      _nianlun?.onConversationSwitched();
     };
     _viewModel.onStreamFinished = (conversationId) {
       // Trigger UI update when streaming finishes
@@ -854,6 +857,14 @@ class HomePageController extends ChangeNotifier {
         }
       }
       _chatInitialized = true;
+      _nianlun?.dispose();
+      if (_context.mounted) {
+        _nianlun = NianlunBinding(
+          context: _context,
+          chat: _chatService,
+          chatController: _chatController,
+        )..start();
+      }
       if (ScheduledTasksService.supported) {
         if (ScheduledTasksService.instance.isIOS) {
           final binding = _scheduledPreparation =
@@ -1821,6 +1832,7 @@ class HomePageController extends ChangeNotifier {
 
   Future<void> _handleAssistantMessageFinished(ChatMessage message) async {
     if (!_context.mounted || message.role != 'assistant') return;
+    unawaited(_nianlun?.onAssistantMessageFinished(message) ?? Future.value());
     final settings = _context.read<SettingsProvider>();
     if (settings.ttsAutoPlayAssistantReplies) {
       await _speakAssistantMessage(message, autoPlay: true);
@@ -2856,6 +2868,7 @@ class HomePageController extends ChangeNotifier {
     }
     if (state == AppLifecycleState.resumed) {
       ScreenWakelock.reassert();
+      _nianlun?.onAppResumed();
     }
   }
 
@@ -3003,6 +3016,8 @@ class HomePageController extends ChangeNotifier {
     if (background.visibleConversation == _visibleBackgroundConversation) {
       background.visibleConversation = null;
     }
+    _nianlun?.dispose();
+    _nianlun = null;
     _viewModel.resetFileProcessingIndicator();
     _viewModel.onBackgroundTaskError = null;
     _ocrService.onError = null;

@@ -91,6 +91,7 @@ class _CustomRequestTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(0, 8, 0, 16), // Reduced top padding
       children: [
+        _NianlunCard(assistant: a),
         // Headers
         card(
           child: Column(
@@ -454,6 +455,144 @@ class _BodyRowState extends State<_BodyRow> {
           onChanged: (v) => widget.onChanged(_keyCtrl.text, v),
         ),
       ],
+    );
+  }
+}
+
+/// 年轮：这个助手的欲望本 / 自唤醒服务器。文案先写死中文（这是个人 fork）。
+class _NianlunCard extends StatefulWidget {
+  const _NianlunCard({required this.assistant});
+  final Assistant assistant;
+
+  @override
+  State<_NianlunCard> createState() => _NianlunCardState();
+}
+
+class _NianlunCardState extends State<_NianlunCard> {
+  late final TextEditingController _urlCtrl = TextEditingController(
+    text: widget.assistant.nianlunBaseUrl,
+  );
+  late final TextEditingController _tokenCtrl = TextEditingController(
+    text: widget.assistant.nianlunToken,
+  );
+  bool _testing = false;
+  String? _testResult;
+
+  @override
+  void dispose() {
+    _urlCtrl.dispose();
+    _tokenCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _test() async {
+    final a = widget.assistant;
+    final client = NianlunClient(
+      baseUrl: a.nianlunBaseUrl,
+      token: a.nianlunToken,
+    );
+    setState(() {
+      _testing = true;
+      _testResult = null;
+    });
+    String result;
+    try {
+      if (!client.isConfigured) {
+        result = '先填服务器地址和令牌。';
+      } else if (!await client.healthz()) {
+        result = '连不上：健康检查没通过。';
+      } else {
+        final pending = await client.fetchDeliveries(a.nianlunWindowId);
+        result = '连上了。他留的话：${pending.length} 条待取。';
+      }
+    } catch (e) {
+      result = '失败：$e';
+    }
+    if (!mounted) return;
+    setState(() {
+      _testing = false;
+      _testResult = result;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final a = widget.assistant;
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ap = context.read<AssistantProvider>();
+    final muted = TextStyle(
+      fontSize: 12,
+      color: cs.onSurface.withValues(alpha: 0.6),
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 20, 8),
+      child: SectionCard(
+        padding: const EdgeInsets.all(12),
+        shadow: isDark ? null : AppShadows.soft,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _iosSwitchRow(
+              context,
+              icon: Lucide.Moon,
+              label: '年轮',
+              subtitle: '他的欲望本和自唤醒。打开后，这个助手每次回复都会把对话同步给年轮；他醒来说的话会出现在这里的聊天里。',
+              value: a.nianlunEnabled,
+              onChanged: (v) {
+                ap.updateAssistant(
+                  a.copyWith(
+                    nianlunEnabled: v,
+                    nianlunWindowId: (v && a.nianlunWindowId.isEmpty)
+                        ? const Uuid().v4()
+                        : null,
+                  ),
+                );
+              },
+            ),
+            if (a.nianlunEnabled) ...[
+              const SizedBox(height: 8),
+              IosFormTextField(
+                label: '服务器地址',
+                controller: _urlCtrl,
+                hintText: 'https://…/nianlun-test',
+                keyboardType: TextInputType.url,
+                autocorrect: false,
+                enableSuggestions: false,
+                onChanged: (v) =>
+                    ap.updateAssistant(a.copyWith(nianlunBaseUrl: v.trim())),
+              ),
+              const SizedBox(height: 8),
+              IosFormTextField(
+                label: '令牌',
+                controller: _tokenCtrl,
+                hintText: '年轮 .env 里的 NL_TOOL_TOKEN',
+                autocorrect: false,
+                enableSuggestions: false,
+                onChanged: (v) =>
+                    ap.updateAssistant(a.copyWith(nianlunToken: v.trim())),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('窗口编号：${a.nianlunWindowId}', style: muted),
+                  ),
+                  TextButton(
+                    onPressed: _testing ? null : _test,
+                    child: Text(_testing ? '测试中…' : '测试连接'),
+                  ),
+                ],
+              ),
+              if (_testResult != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(_testResult!, style: muted),
+                ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

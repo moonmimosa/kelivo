@@ -1,0 +1,116 @@
+name: Nianlun iOS build (unsigned IPA)
+
+# 年轮分支的 iOS 构建：推到 nianlun 分支自动跑，也可以手动触发。
+# 步骤照抄 build-stable-44.yml 的 iOS 任务（Flutter stable 3.44.9），另外：
+# - 把 bundle id 改成 psyche.kelivo.nianlun、显示名改成「Kelivo年轮」，装出来是一个独立的 App，
+#   不覆盖手机上正式的 Kelivo 和它的聊天记录；
+# - fallback key 写空字符串，保证发布到 Release 的包里不带任何密钥；
+# - 产物：Actions 里的 iOS-IPA-nianlun，以及一个 prerelease（tag nianlun-ios-<序号>），用 Sideloadly 安装。
+
+on:
+  push:
+    branches: [nianlun]
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.44.9'
+
+jobs:
+  ios:
+    name: 构建 iOS（年轮测试包）
+    runs-on: macos-latest
+
+    steps:
+      - name: 📦 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐦 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: 🔧 关闭 Swift Package Manager
+        run: flutter config --no-enable-swift-package-manager
+
+      - name: 📝 Inject fallback（空 key，不带任何密钥）
+        shell: bash
+        run: |
+          mkdir -p lib/secrets
+          cat > lib/secrets/fallback.dart <<'EOF'
+          const String siliconflowFallbackKey = '';
+          EOF
+
+      - name: 📝 获取版本号
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          VERSION="${VERSION}_nianlun_${SHORT_SHA}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "版本号: $VERSION"
+
+      - name: 🪪 改成独立 App（bundle id + 显示名）
+        run: |
+          set -e
+          # psyche.kelivo[.X] -> psyche.kelivo.nianlun[.X]（主 App 与各扩展）
+          sed -i '' -E 's/PRODUCT_BUNDLE_IDENTIFIER = psyche\.kelivo(\.[A-Za-z]+)?;/PRODUCT_BUNDLE_IDENTIFIER = psyche.kelivo.nianlun\1;/g' ios/Runner.xcodeproj/project.pbxproj
+          # App Group 跟着改
+          for f in $(grep -rl 'group\.psyche\.kelivo' ios lib --include='*.plist' --include='*.entitlements' --include='*.swift' --include='*.dart' || true); do
+            sed -i '' 's/group\.psyche\.kelivo/group.psyche.kelivo.nianlun/g' "$f"
+            echo "app group -> $f"
+          done
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Kelivo年轮' ios/Runner/Info.plist
+          grep -n 'PRODUCT_BUNDLE_IDENTIFIER' ios/Runner.xcodeproj/project.pbxproj | sort -u -k3
+
+      - name: 🧰 缓存 iSH 沙箱产物
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/sandbox/build
+            ios/sandbox/resources/alpine-rootfs.zip
+            ios/sandbox/resources/libvdso.so.elf
+          key: ${{ runner.os }}-${{ runner.arch }}-ish-sandbox-${{ hashFiles('ios/sandbox/build_ish.sh', 'ios/sandbox/ensure_artifacts.sh', 'ios/sandbox/patches/*.patch', 'ios/sandbox/prepare_alpine_rootfs.sh', 'ios/sandbox/resources/VERSION') }}
+
+      - name: 🧰 准备 iSH 沙箱产物
+        run: |
+          brew install meson ninja llvm lld libarchive
+          ios/sandbox/ensure_artifacts.sh
+
+      - name: 🧪 年轮单元测试
+        run: |
+          flutter pub get
+          flutter test test/core/services/nianlun_client_test.dart
+
+      - name: 🏗️ 构建 iOS (无签名)
+        run: |
+          flutter build ios --release --no-codesign
+          cd build/ios/iphoneos
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -qr ../../../Kelivo_ios_${VERSION}.ipa Payload
+          ls -la ../../../Kelivo_ios_*.ipa
+
+      - name: 📤 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-IPA-nianlun
+          path: Kelivo_ios_*.ipa
+
+      - name: 🚀 发布测试包（prerelease）
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nianlun-ios-${{ github.run_number }}
+          name: 年轮测试包 ${{ env.VERSION }}
+          prerelease: true
+          body: |
+            未签名的 iOS 测试包，用 Sideloadly 安装。
+            装出来是独立的 App「Kelivo年轮」，不会覆盖正式的 Kelivo。
+            commit ${{ github.sha }}
+          files: Kelivo_ios_*.ipa
