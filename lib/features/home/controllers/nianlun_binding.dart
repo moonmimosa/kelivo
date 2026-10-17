@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/models/assistant.dart';
@@ -22,6 +20,7 @@ import 'chat_controller.dart';
 /// 把年轮接进聊天页：
 /// - 每次助手回复完成 → 把这个助手「此刻的窗口」（人格 + 最近对话）同步给年轮；
 /// - 回到前台 / 切换对话 / 每分钟 → 去年轮取他醒来留的话，插进该助手的当前对话，再回执。
+/// 插入用确定的消息 id（年轮窗口 + 留言编号），同一条不会被插两次。
 /// 任何失败只打日志，绝不影响聊天本身。
 class NianlunBinding {
   NianlunBinding({
@@ -32,8 +31,6 @@ class NianlunBinding {
 
   static const Duration pollInterval = Duration(minutes: 1);
   static const Duration minPollGap = Duration(seconds: 20);
-  static const String _deliveredPrefsKey = 'nianlun_delivered_v1';
-  static const int _deliveredKeep = 500;
 
   final BuildContext context;
   final ChatService chat;
@@ -44,8 +41,10 @@ class NianlunBinding {
   bool _polling = false;
   bool _syncing = false;
   DateTime? _lastPollAt;
-  List<String> _delivered = const [];
-  bool _deliveredLoaded = false;
+
+  /// 他留的话在本地的消息 id：同一个窗口、同一条留言永远是同一个 id。
+  static String deliveryMessageId(String windowId, int deliveryId) =>
+      'nianlun-$windowId-$deliveryId';
 
   void start() {
     _timer?.cancel();
@@ -173,7 +172,6 @@ class NianlunBinding {
     _polling = true;
     _lastPollAt = now;
     try {
-      await _loadDelivered();
       for (final assistant in assistants) {
         if (_disposed) return;
         await _pollAssistant(assistant);
@@ -204,26 +202,30 @@ class NianlunBinding {
     final ackIds = <int>[];
     Conversation? target;
     for (final d in deliveries) {
-      final key = '$windowId:${d.id}';
-      if (_delivered.contains(key) || d.content.trim().isEmpty) {
+      if (d.content.trim().isEmpty) {
         ackIds.add(d.id);
         continue;
       }
       target ??= await _targetConversation(assistant);
       if (target == null) break;
       try {
-        await chat.addMessage(
-          conversationId: target.id,
-          role: 'assistant',
-          content: d.content,
-          modelId: assistant.chatModelId,
-          providerId: assistant.chatModelProvider,
+        // 同一个 id 已经在这个对话里时，ChatService 会直接跳过——天然防重复。
+        await chat.addMessageDirectly(
+          target.id,
+          ChatMessage(
+            id: deliveryMessageId(windowId, d.id),
+            role: 'assistant',
+            content: d.content,
+            conversationId: target.id,
+            timestamp: d.createdAt ?? DateTime.now(),
+            modelId: assistant.chatModelId,
+            providerId: assistant.chatModelProvider,
+          ),
         );
       } catch (e) {
         debugPrint('[nianlun] insert failed: $e');
         break;
       }
-      await _rememberDelivered(key);
       ackIds.add(d.id);
     }
 
@@ -240,20 +242,22 @@ class NianlunBinding {
     }
   }
 
-  /// 他的话放进哪里：正在看的那个对话（如果属于这个助手），否则这个助手最近的对话，都没有就新开一个。
+  /// 他的话放进哪里：正在看的那个对话（如果属于这个助手且已经保存），
+  /// 否则这个助手最近的对话，都没有就新开一个。
   Future<Conversation?> _targetConversation(Assistant assistant) async {
-    final current = chatController.currentConversation;
-    if (current != null &&
-        current.assistantId == assistant.id &&
-        !chat.isTemporaryConversation(current.id)) {
-      return current;
+    final saved = chat
+        .getAllConversations()
+        .where(
+          (c) =>
+              c.assistantId == assistant.id &&
+              !chat.isTemporaryConversation(c.id),
+        )
+        .toList();
+    final currentId = chatController.currentConversation?.id;
+    for (final c in saved) {
+      if (c.id == currentId) return c;
     }
-    for (final c in chat.getAllConversations()) {
-      if (c.assistantId == assistant.id &&
-          !chat.isTemporaryConversation(c.id)) {
-        return c;
-      }
-    }
+    if (saved.isNotEmpty) return saved.first;
     try {
       return await chat.createConversation(
         title: assistant.name,
@@ -264,31 +268,5 @@ class NianlunBinding {
       debugPrint('[nianlun] create conversation failed: $e');
       return null;
     }
-  }
-
-  Future<void> _loadDelivered() async {
-    if (_deliveredLoaded) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_deliveredPrefsKey);
-      if (raw != null && raw.isNotEmpty) {
-        final list = jsonDecode(raw);
-        if (list is List) _delivered = list.whereType<String>().toList();
-      }
-    } catch (_) {
-      _delivered = const [];
-    }
-    _deliveredLoaded = true;
-  }
-
-  Future<void> _rememberDelivered(String key) async {
-    final next = [..._delivered, key];
-    _delivered = next.length > _deliveredKeep
-        ? next.sublist(next.length - _deliveredKeep)
-        : next;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_deliveredPrefsKey, jsonEncode(_delivered));
-    } catch (_) {}
   }
 }

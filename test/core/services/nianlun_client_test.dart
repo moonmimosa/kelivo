@@ -1,8 +1,21 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:Kelivo/core/models/chat_message.dart';
 import 'package:Kelivo/core/services/nianlun/nianlun_client.dart';
+import 'package:Kelivo/features/home/controllers/nianlun_binding.dart';
 
 void main() {
+  test('delivery message ids are stable per window and delivery', () {
+    expect(NianlunBinding.deliveryMessageId('w1', 7), 'nianlun-w1-7');
+    expect(
+      NianlunBinding.deliveryMessageId('w1', 7),
+      NianlunBinding.deliveryMessageId('w1', 7),
+    );
+    expect(
+      NianlunBinding.deliveryMessageId('w1', 7),
+      isNot(NianlunBinding.deliveryMessageId('w2', 7)),
+    );
+  });
+
   group('NianlunClient.normalizeBaseUrl', () {
     test('strips trailing slashes and dashboard hash', () {
       expect(
