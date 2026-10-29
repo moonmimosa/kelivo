@@ -9,6 +9,7 @@ import '../../../core/models/assistant.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/conversation_prompt_settings.dart';
+import '../../../core/models/chat_input_data.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/user_provider.dart';
 import '../../../core/services/chat/chat_service.dart';
@@ -17,6 +18,7 @@ import '../../../core/services/nianlun/nianlun_client.dart';
 import '../../chat/utils/thinking_tag_parser.dart';
 import 'chat_actions.dart';
 import 'chat_controller.dart';
+import 'home_view_model.dart';
 
 /// 把年轮接进聊天页：
 /// - 每次助手回复完成 → 把这个助手「此刻的窗口」（人格 + 最近对话）同步给年轮；
@@ -28,6 +30,7 @@ class NianlunBinding {
     required this.context,
     required this.chat,
     required this.chatController,
+    this.viewModel,
     this.httpClient,
   });
 
@@ -37,6 +40,7 @@ class NianlunBinding {
   final BuildContext context;
   final ChatService chat;
   final ChatController chatController;
+  final HomeViewModel? viewModel;
 
   /// 测试时注入；正常运行为 null（每次请求自己开关连接）。
   final http.Client? httpClient;
@@ -46,6 +50,7 @@ class NianlunBinding {
   bool _polling = false;
   bool _syncing = false;
   DateTime? _lastPollAt;
+  final Map<String, _PendingWake> _pendingWakes = <String, _PendingWake>{};
 
   /// 他留的话在本地的消息 id：同一个窗口、同一条留言永远是同一个 id。
   static String deliveryMessageId(String windowId, int deliveryId) =>
@@ -84,10 +89,11 @@ class NianlunBinding {
       httpClient: httpClient,
     );
     if (!client.isConfigured) return;
+    final pendingWake = _pendingWakes.remove(message.id);
     // 需要 BuildContext 的都在第一个 await 之前算好。
     final modelId = message.modelId ?? assistant.chatModelId;
     final systemPrompt = _renderSystemPrompt(assistant, conversation, modelId);
-    final windowId = _windowIdFor(assistant);
+    final windowId = pendingWake?.windowId ?? _windowIdFor(assistant);
 
     _syncing = true;
     try {
@@ -107,8 +113,31 @@ class NianlunBinding {
         ),
       );
       await client.syncWindow(windowId, payload);
+      if (pendingWake != null) {
+        await client.completeWakeRequest(
+          windowId,
+          pendingWake.request.id,
+          ok: message.content.trim().isNotEmpty,
+          outcome: message.content.trim().isNotEmpty ? 'replied' : 'silent',
+          contentChars: message.content.trim().length,
+        );
+      }
     } catch (e) {
       debugPrint('[nianlun] sync failed: $e');
+      if (pendingWake != null) {
+        try {
+          await client.completeWakeRequest(
+            windowId,
+            pendingWake.request.id,
+            ok: false,
+            outcome: 'failed',
+            contentChars: 0,
+            error: e.toString(),
+          );
+        } catch (completeError) {
+          debugPrint('[nianlun] wake completion failed: $completeError');
+        }
+      }
     } finally {
       _syncing = false;
     }
@@ -197,6 +226,7 @@ class NianlunBinding {
     );
     if (!client.isConfigured) return;
     final windowId = assistant.nianlunWindowId;
+    await _pollWakeRequests(assistant, client, windowId);
     final List<NianlunDelivery> deliveries;
     try {
       deliveries = await client.fetchDeliveries(windowId);
@@ -249,6 +279,56 @@ class NianlunBinding {
     }
   }
 
+  Future<void> _pollWakeRequests(
+    Assistant assistant,
+    NianlunClient client,
+    String windowId,
+  ) async {
+    final runtime = viewModel;
+    if (runtime == null) return;
+    final List<NianlunWakeRequest> requests;
+    try {
+      requests = await client.fetchWakeRequests(windowId);
+    } catch (e) {
+      debugPrint('[nianlun] wake request fetch failed: $e');
+      return;
+    }
+    for (final request in requests) {
+      if (_disposed) return;
+      final target = await _targetConversation(assistant);
+      if (target == null) return;
+      final result = await runtime.sendScheduledMessage(
+        input: ChatInputData(
+          text:
+              '〔年轮自唤醒〕这是你自己醒来的一轮。请按你平时的方式使用记忆、工具和人格处理下面的房间内容；如果不想打扰她，可以保持沉默。\n\n${request.prompt}',
+        ),
+        conversation: target,
+        assistant: assistant,
+        scheduledNotify: false,
+        scheduledPreview: false,
+      );
+      if (result.success && result.assistantMessage != null) {
+        _pendingWakes[result.assistantMessage!.id] = _PendingWake(
+          request: request,
+          windowId: windowId,
+        );
+      } else if (result.errorMessage != 'in_flight') {
+        try {
+          await client.completeWakeRequest(
+            windowId,
+            request.id,
+            ok: false,
+            outcome: 'failed',
+            contentChars: 0,
+            error: result.errorMessage ?? 'Kelivo 未启动生成',
+          );
+        } catch (e) {
+          debugPrint('[nianlun] wake rejection completion failed: $e');
+        }
+      }
+    }
+  }
+
   /// 他的话放进哪里：正在看的那个对话（如果属于这个助手且已经保存），
   /// 否则这个助手最近的对话，都没有就新开一个。
   Future<Conversation?> _targetConversation(Assistant assistant) async {
@@ -276,4 +356,11 @@ class NianlunBinding {
       return null;
     }
   }
+}
+
+class _PendingWake {
+  const _PendingWake({required this.request, required this.windowId});
+
+  final NianlunWakeRequest request;
+  final String windowId;
 }

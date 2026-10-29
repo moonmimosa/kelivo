@@ -863,6 +863,7 @@ class HomePageController extends ChangeNotifier {
           context: _context,
           chat: _chatService,
           chatController: _chatController,
+          viewModel: _viewModel,
         )..start();
       }
       if (ScheduledTasksService.supported) {

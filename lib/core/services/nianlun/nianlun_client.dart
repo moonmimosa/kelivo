@@ -152,6 +152,55 @@ class NianlunClient {
     final data = jsonDecode(r.body);
     return (data is Map ? data['acked'] as int? : null) ?? 0;
   });
+
+  Future<List<NianlunWakeRequest>> fetchWakeRequests(
+    String windowId,
+  ) => _withClient((client) async {
+    final r = await client
+        .get(
+          _uri(
+            '/api/client/windows/${Uri.encodeComponent(windowId)}/wake-requests',
+          ),
+          headers: _headers,
+        )
+        .timeout(timeout);
+    if (r.statusCode != 200) {
+      throw NianlunHttpException(r.statusCode, r.body);
+    }
+    final data = jsonDecode(r.body);
+    final list = (data is Map ? data['requests'] : null) as List? ?? [];
+    return list
+        .whereType<Map>()
+        .map((e) => NianlunWakeRequest.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  });
+
+  Future<void> completeWakeRequest(
+    String windowId,
+    int requestId, {
+    required bool ok,
+    required String outcome,
+    required int contentChars,
+    String? error,
+  }) => _withClient((client) async {
+    final r = await client
+        .post(
+          _uri(
+            '/api/client/windows/${Uri.encodeComponent(windowId)}/wake-requests/$requestId/complete',
+          ),
+          headers: _headers,
+          body: jsonEncode({
+            'ok': ok,
+            'outcome': outcome,
+            'content_chars': contentChars,
+            if (error != null) 'error': error,
+          }),
+        )
+        .timeout(timeout);
+    if (r.statusCode != 200) {
+      throw NianlunHttpException(r.statusCode, r.body);
+    }
+  });
 }
 
 class NianlunDelivery {
@@ -181,6 +230,33 @@ class NianlunDelivery {
     final dt = DateTime.tryParse(s.endsWith('Z') ? s : '${s}Z');
     return dt?.toLocal();
   }
+}
+
+class NianlunWakeRequest {
+  const NianlunWakeRequest({
+    required this.id,
+    required this.heartbeatId,
+    required this.mode,
+    required this.prompt,
+    required this.createdAt,
+  });
+
+  final int id;
+  final int heartbeatId;
+  final String mode;
+  final String prompt;
+  final DateTime? createdAt;
+
+  static NianlunWakeRequest fromJson(Map<String, dynamic> json) =>
+      NianlunWakeRequest(
+        id: (json['id'] as num).toInt(),
+        heartbeatId: (json['heartbeat_id'] as num).toInt(),
+        mode: (json['mode'] as String?) ?? 'room',
+        prompt: (json['prompt'] as String?) ?? '',
+        createdAt: NianlunDelivery.parseServerTime(
+          json['created_at'] as String?,
+        ),
+      );
 }
 
 class NianlunHttpException implements Exception {
