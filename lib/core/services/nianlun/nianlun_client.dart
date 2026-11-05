@@ -30,6 +30,10 @@ class NianlunClient {
       message.role == 'user' &&
       message.content.trimLeft().startsWith(internalWakePromptPrefix);
 
+  static List<ChatMessage> excludeInternalWakePrompts(
+    Iterable<ChatMessage> messages,
+  ) => messages.where((message) => !isInternalWakePrompt(message)).toList();
+
   bool get isConfigured =>
       normalizeBaseUrl(baseUrl).isNotEmpty && token.trim().isNotEmpty;
 

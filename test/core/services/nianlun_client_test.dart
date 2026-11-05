@@ -128,6 +128,29 @@ void main() {
         expect(NianlunClient.internalWakeTriggerText, contains('不要回答年轮'));
       },
     );
+
+    test('internal wake prompts are excluded from automatic memory input', () {
+      ChatMessage message(String id, String role, String content) =>
+          ChatMessage(
+            id: id,
+            role: role,
+            content: content,
+            conversationId: 'c',
+          );
+
+      final filtered = NianlunClient.excludeInternalWakePrompts([
+        message('before', 'user', '正常聊天'),
+        message('wake', 'user', '〔年轮自唤醒〕后台检查'),
+        message('wake-reply', 'assistant', '这轮自然回复'),
+        message('after', 'assistant', '之后的正常回复'),
+      ]);
+
+      expect(filtered.map((message) => message.id), [
+        'before',
+        'wake-reply',
+        'after',
+      ]);
+    });
   });
 
   group('NianlunDelivery', () {

@@ -469,9 +469,8 @@ class MemoryPipelineService {
 
     final watermark = convo.lastMemoryExtractedOrder;
     final withOrder = <({ChatMessage message, int order})>[];
-    for (final m in selected) {
+    for (final m in NianlunClient.excludeInternalWakePrompts(selected)) {
       if (m.isStreaming) continue;
-      if (NianlunClient.isInternalWakePrompt(m)) continue;
       final order = chatService.getMessageIndex(job.conversationId, m.id);
       if (order < 0) continue;
       if (order <= watermark) continue;
