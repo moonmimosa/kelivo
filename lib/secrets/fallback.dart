@@ -1,1 +1,1 @@
-const String siliconflowFallbackKey = 'sk-xxxx';
+const String siliconflowFallbackKey = '';

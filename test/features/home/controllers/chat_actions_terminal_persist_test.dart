@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:Kelivo/core/database/generation_run.dart';
 import 'package:Kelivo/core/models/chat_message.dart';
 import 'package:Kelivo/core/models/message_part.dart';
+import 'package:Kelivo/core/models/token_usage.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
 import 'package:Kelivo/core/models/provider_oauth.dart';
 import 'package:Kelivo/core/models/mobile_background_settings.dart';
 import 'package:Kelivo/core/services/mobile_background.dart';
@@ -110,6 +112,236 @@ class _ThrowingFinalizeChatService extends ChatService {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues(const {});
+
+  for (final terminal in ['complete', 'error', 'cancel']) {
+    testWidgets('empty reasoning stops on $terminal without an end event', (
+      tester,
+    ) async {
+      final service = _ThrowingFinalizeChatService(failCompletion: false);
+      final settings = SettingsProvider(createBusinessTestPreferences());
+      final background = MobileBackgroundCoordinator(
+        platform: TargetPlatform.linux,
+      );
+      addTearDown(settings.dispose);
+      addTearDown(background.dispose);
+      late ChatActions actions;
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SettingsProvider>.value(
+          value: settings,
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Builder(
+              builder: (context) {
+                actions = _actionsFor(
+                  context,
+                  service,
+                  settings,
+                  background,
+                ).actions;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+      addTearDown(actions.streamController.dispose);
+      final state = StreamingState(
+        GenerationContext(
+          assistantMessage: ChatMessage(
+            id: 'empty-reasoning',
+            role: 'assistant',
+            conversationId: 'conversation-1',
+            isStreaming: true,
+          ),
+          apiMessages: const [],
+          userImagePaths: const [],
+          allowImagesApiRouting: false,
+          providerKey: 'test',
+          modelId: 'test',
+          assistant: null,
+          settings: settings,
+          config: ProviderConfig(
+            id: 'test',
+            enabled: true,
+            name: 'test',
+            apiKey: '',
+            baseUrl: '',
+          ),
+          toolDefs: const [],
+          supportsReasoning: true,
+          enableReasoning: true,
+          streamOutput: true,
+          generateTitleOnFinish: false,
+        ),
+      )..requestStartedAt = DateTime.now();
+      actions.streamController.markStreamingStarted(state.messageId);
+      // Exercise multiple open items so terminal cleanup cannot leave an older
+      // item active just because the last one was closed.
+      for (final id in ['first', 'second']) {
+        await actions.debugHandleStreamChunk(ReasoningStart(id: id), state);
+      }
+      await tester.pump(const Duration(milliseconds: 50));
+      final segments = actions.streamController.getReasoningSegments(
+        state.messageId,
+      )!;
+      expect(segments, hasLength(2));
+      expect(segments.every((segment) => segment.finishedAt == null), isTrue);
+      expect(state.firstTokenMs, isNull);
+      switch (terminal) {
+        case 'complete':
+          await actions.debugFinishStreaming(state);
+        case 'error':
+          await actions.debugHandleStreamError(
+            StateError('stream failed'),
+            state,
+          );
+        case 'cancel':
+          actions.debugTrackActiveMessage(
+            state.ctx.assistantMessage.copyWith(
+              parts: state.partsHandler.parts,
+            ),
+          );
+          await actions.cancelStreamingById(state.conversationId);
+      }
+      expect(segments.every((segment) => segment.finishedAt != null), isTrue);
+      final saved = service.lastMessage!;
+      expect(saved.isStreaming, isFalse);
+      expect(saved.reasoningText, isEmpty);
+      expect(saved.reasoningFinishedAt, isNotNull);
+      expect(saved.firstTokenMs, isNull);
+      expect(
+        actions.streamController.streamingContentNotifier.hasNotifier(
+          state.messageId,
+        ),
+        isFalse,
+      );
+    });
+  }
+
+  for (final fail in [false, true]) {
+    testWidgets(
+      'terminal persistence keeps usage and request timing (fail=$fail)',
+      (tester) async {
+        final service = _ThrowingFinalizeChatService(failCompletion: false);
+        final settings = SettingsProvider(createBusinessTestPreferences());
+        final background = MobileBackgroundCoordinator(
+          platform: TargetPlatform.linux,
+        );
+        addTearDown(settings.dispose);
+        addTearDown(background.dispose);
+        late ChatActions actions;
+        await tester.pumpWidget(
+          ChangeNotifierProvider<SettingsProvider>.value(
+            value: settings,
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Builder(
+                builder: (context) {
+                  actions = _actionsFor(
+                    context,
+                    service,
+                    settings,
+                    background,
+                  ).actions;
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          ),
+        );
+        addTearDown(actions.streamController.dispose);
+        final state = StreamingState(
+          GenerationContext(
+            assistantMessage: ChatMessage(
+              id: 'assistant-usage',
+              role: 'assistant',
+              conversationId: 'conversation-1',
+              isStreaming: true,
+              // A tool answer can resume a message that already incurred usage.
+              totalTokens: 60,
+              promptTokens: 50,
+              completionTokens: 10,
+            ),
+            apiMessages: const [],
+            userImagePaths: const [],
+            allowImagesApiRouting: false,
+            providerKey: 'test',
+            modelId: 'test',
+            assistant: null,
+            settings: settings,
+            config: ProviderConfig(
+              id: 'test',
+              enabled: true,
+              name: 'test',
+              apiKey: '',
+              baseUrl: '',
+            ),
+            toolDefs: const [],
+            supportsReasoning: false,
+            enableReasoning: false,
+            streamOutput: true,
+            generateTitleOnFinish: false,
+          ),
+        );
+        state.requestStartedAt = DateTime.now().subtract(
+          const Duration(seconds: 30),
+        );
+        await actions.debugHandleStreamChunk(
+          const ReasoningDelta(id: 'reasoning', text: 'thinking'),
+          state,
+        );
+        final firstTokenMs = state.firstTokenMs;
+        expect(firstTokenMs, inInclusiveRange(30000, 31000));
+        await actions.debugHandleStreamChunk(
+          const TextDelta(id: 'text', text: 'done'),
+          state,
+        );
+        expect(state.firstTokenMs, firstTokenMs);
+        await tester.pump(const Duration(milliseconds: 500));
+        await actions.debugHandleStreamChunk(
+          const Usage(
+            TokenUsage(
+              promptTokens: 100,
+              completionTokens: 20,
+              cacheWriteTokens: 30,
+              reasoningTokens: 5,
+            ),
+          ),
+          state,
+        );
+        await actions.debugHandleStreamChunk(
+          const Usage(
+            TokenUsage(promptTokens: 200, completionTokens: 30),
+            startsRequest: true,
+          ),
+          state,
+        );
+        if (fail) {
+          await actions.debugHandleStreamError(
+            StateError('failed after usage'),
+            state,
+          );
+        } else {
+          await actions.debugFinishStreaming(state);
+        }
+        final saved = service.lastMessage!;
+        expect(saved.totalTokens, 410);
+        expect(saved.promptTokens, 350);
+        expect(saved.completionTokens, 60);
+        expect(saved.reasoningTokens, 5);
+        expect(saved.cacheWriteTokens, 30);
+        expect(saved.finishUsage!.totalTokens, 230);
+        expect(saved.finishUsage!.reasoningTokens, 0);
+        expect(saved.isStreaming, isFalse);
+        expect(saved.firstTokenMs, firstTokenMs);
+        expect(saved.durationMs, inInclusiveRange(30000, 31000));
+        expect(state.durationMs, saved.durationMs);
+        expect(state.usage!.totalTokens, 230);
+      },
+    );
+  }
 
   testWidgets('OAuth 失效保留部分回复并持久化恢复入口，不触发普通错误提示', (tester) async {
     final service = _ThrowingFinalizeChatService(failCompletion: false);

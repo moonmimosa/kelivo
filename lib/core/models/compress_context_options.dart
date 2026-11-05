@@ -1,4 +1,7 @@
+import '../utils/token_estimator.dart';
 import 'chat_message.dart';
+import 'context_operation.dart';
+import 'message_part.dart';
 import '../../utils/utf16_safe_cut.dart';
 
 enum CompressContextLimitMode { start, recent, unlimited, keepRecent }
@@ -8,10 +11,15 @@ class CompressContextOptions {
     required this.mode,
     this.maxChars,
     this.keepUserMessages,
+    this.historySource = ContextHistorySource.effective,
+    this.includeEditedSummaries = true,
+    this.includeAttachmentsAndTools = true,
+    this.regenerateExisting = false,
+    this.newConversation = false,
   });
 
   static const int defaultMaxChars = 6000;
-  static const int defaultKeepUserMessages = 3;
+  static const int defaultKeepUserMessages = 6;
 
   /// Hard cap on a single compress request, in UTF-16 code units.
   ///
@@ -43,6 +51,109 @@ class CompressContextOptions {
   final CompressContextLimitMode mode;
   final int? maxChars;
   final int? keepUserMessages;
+  final ContextHistorySource historySource;
+  final bool includeEditedSummaries;
+  final bool includeAttachmentsAndTools;
+  final bool regenerateExisting;
+  final bool newConversation;
+
+  Map<String, dynamic> toJson() => {
+    'mode': mode.name,
+    'maxChars': maxChars,
+    'keep': keepUserMessages,
+    'source': historySource.name,
+    'includeEdited': includeEditedSummaries,
+    'includeAttachmentsAndTools': includeAttachmentsAndTools,
+    'regenerateExisting': regenerateExisting,
+    'newConversation': newConversation,
+  };
+
+  factory CompressContextOptions.fromJson(Map<String, dynamic> json) =>
+      CompressContextOptions(
+        mode: CompressContextLimitMode.values.byName(json['mode'] as String),
+        maxChars: json['maxChars'] as int?,
+        keepUserMessages: json['keep'] as int?,
+        historySource: ContextHistorySource.values.byName(
+          json['source'] as String,
+        ),
+        includeEditedSummaries: json['includeEdited'] as bool,
+        includeAttachmentsAndTools: json['includeAttachmentsAndTools'] != false,
+        regenerateExisting: json['regenerateExisting'] == true,
+        newConversation: json['newConversation'] as bool,
+      );
+}
+
+bool isCompressionUserMessage(ChatMessage message) =>
+    message.role == 'user' &&
+    !ContextOperation.isSummary(message) &&
+    !message.id.startsWith('context-note:') &&
+    (message.content.trim().isNotEmpty ||
+        message.parts.any((part) => part is ImagePart || part is FilePart));
+
+typedef CompressionSelection = ({
+  List<ChatMessage> effective,
+  List<ChatMessage> retained,
+  List<ChatMessage> covered,
+  List<ChatMessage> input,
+  List<String> dependencies,
+  bool needsRegeneration,
+});
+
+/// The options preview and the actual task use the same range selection.
+CompressionSelection selectCompressionHistory(
+  List<ChatMessage> messages,
+  List<ContextOperation> operations,
+  CompressContextOptions options,
+) {
+  final effective = ContextHistory.resolve(messages, operations);
+  final keep = options.mode == CompressContextLimitMode.keepRecent
+      ? options.keepUserMessages ??
+            CompressContextOptions.defaultKeepUserMessages
+      : 0;
+  final retained = keep == 0
+      ? <ChatMessage>[]
+      : selectKeepRecentMessages(effective, keep);
+  final prefix = effective.take(effective.length - retained.length).toList();
+  final dependencies = prefix
+      .where(ContextOperation.isSummary)
+      .map((m) => m.id.substring(ContextOperation.summaryPrefix.length))
+      .toList();
+  final groups = <String>{
+    for (final message in prefix)
+      if (!ContextOperation.isSummary(message)) ContextHistory.group(message),
+    for (final operation in operations)
+      if (dependencies.contains(operation.id)) ...operation.sourceGroups,
+  };
+  final expanded = ContextHistory.compressionInput(
+    messages,
+    operations,
+    source: options.historySource,
+    includeEditedSummaries: options.includeEditedSummaries,
+  );
+  return (
+    effective: effective,
+    retained: retained,
+    covered: messages
+        .where((m) => groups.contains(ContextHistory.group(m)))
+        .toList(),
+    dependencies: dependencies,
+    needsRegeneration:
+        prefix.isNotEmpty &&
+        prefix.every(ContextOperation.isSummary) &&
+        options.historySource == ContextHistorySource.effective &&
+        !options.regenerateExisting,
+    input: expanded.where((message) {
+      if (groups.contains(ContextHistory.group(message))) return true;
+      final operation = operations
+          .where(
+            (op) =>
+                message.id == op.summaryMessageId ||
+                message.id == 'context-note:${op.id}',
+          )
+          .firstOrNull;
+      return operation != null && operation.sourceGroups.every(groups.contains);
+    }).toList(),
+  );
 }
 
 /// Resolve the model that [HomeViewModel.compressContext] will call.
@@ -104,31 +215,6 @@ int compressRequestCharBudget({
   return chars < safeRequestChars ? chars : safeRequestChars;
 }
 
-/// Read a context-window token count from a model-override map.
-///
-/// Kelivo has no first-class [ModelInfo] context field; some imports /
-/// overrides may still store one of these keys.
-int? readModelContextWindowTokens(Map<String, dynamic>? override) {
-  if (override == null || override.isEmpty) return null;
-  const keys = <String>[
-    'contextWindow',
-    'context_window',
-    'maxContextTokens',
-    'max_context_tokens',
-    'contextLength',
-    'context_length',
-  ];
-  for (final key in keys) {
-    final raw = override[key];
-    if (raw is num && raw > 0) return raw.toInt();
-    if (raw is String) {
-      final parsed = int.tryParse(raw.trim());
-      if (parsed != null && parsed > 0) return parsed;
-    }
-  }
-  return null;
-}
-
 String buildCompressContextContent(
   String joined,
   CompressContextOptions options,
@@ -149,15 +235,25 @@ String buildCompressContextContent(
   };
 }
 
-String? conversationLineForCompression(ChatMessage message) {
-  if (message.content.trim().isEmpty) return null;
-  return '${message.role == "assistant" ? "Assistant" : "User"}: ${message.content}';
+String? conversationLineForCompression(
+  ChatMessage message, {
+  required String Function(int) quoteMarker,
+}) {
+  final content = message.quotedContent(quoteMarker);
+  if (content.trim().isEmpty) return null;
+  return '${message.role == "assistant" ? "Assistant" : "User"}: $content';
 }
 
-String buildConversationTextForCompression(List<ChatMessage> messages) {
+String buildConversationTextForCompression(
+  List<ChatMessage> messages, {
+  required String Function(int) quoteMarker,
+}) {
   final lines = <String>[];
   for (final message in messages) {
-    final line = conversationLineForCompression(message);
+    final line = conversationLineForCompression(
+      message,
+      quoteMarker: quoteMarker,
+    );
     if (line != null) lines.add(line);
   }
   return lines.join('\n\n');
@@ -169,21 +265,24 @@ String buildBoundedConversationText(
   List<ChatMessage> messages, {
   required CompressContextLimitMode mode,
   required int maxChars,
+  required String Function(int) quoteMarker,
 }) {
   if (maxChars <= 0) return '';
   if (mode == CompressContextLimitMode.recent) {
-    return _buildRecentBoundedConversationText(messages, maxChars);
+    return _buildRecentBoundedConversationText(messages, maxChars, quoteMarker);
   }
-  return _buildStartBoundedConversationText(messages, maxChars);
+  return _buildStartBoundedConversationText(messages, maxChars, quoteMarker);
 }
 
 String _buildStartBoundedConversationText(
   List<ChatMessage> messages,
   int maxChars,
+  String Function(int) quoteMarker,
 ) {
   final buf = StringBuffer();
   for (final message in messages) {
-    if (message.content.trim().isEmpty) continue;
+    final body = message.quotedContent(quoteMarker);
+    if (body.trim().isEmpty) continue;
     final prefix = message.role == 'assistant' ? 'Assistant: ' : 'User: ';
     final sep = buf.isEmpty ? '' : '\n\n';
     final remaining = maxChars - buf.length;
@@ -194,13 +293,13 @@ String _buildStartBoundedConversationText(
       break;
     }
     final contentBudget = remaining - head.length;
-    final content = message.content.length <= contentBudget
-        ? message.content
-        : truncateHeadUtf16Safe(message.content, contentBudget);
+    final content = body.length <= contentBudget
+        ? body
+        : truncateHeadUtf16Safe(body, contentBudget);
     buf
       ..write(head)
       ..write(content);
-    if (message.content.length > contentBudget) break;
+    if (body.length > contentBudget) break;
   }
   return buf.toString();
 }
@@ -208,23 +307,25 @@ String _buildStartBoundedConversationText(
 String _buildRecentBoundedConversationText(
   List<ChatMessage> messages,
   int maxChars,
+  String Function(int) quoteMarker,
 ) {
   final parts = <String>[];
   var used = 0;
   for (var i = messages.length - 1; i >= 0; i--) {
     final message = messages[i];
-    if (message.content.trim().isEmpty) continue;
+    final body = message.quotedContent(quoteMarker);
+    if (body.trim().isEmpty) continue;
     final prefix = message.role == 'assistant' ? 'Assistant: ' : 'User: ';
     final sepLen = parts.isEmpty ? 0 : 2;
     final remaining = maxChars - used - sepLen;
     if (remaining <= 0) break;
-    final lineLen = prefix.length + message.content.length;
+    final lineLen = prefix.length + body.length;
     if (lineLen <= remaining) {
-      parts.add('$prefix${message.content}');
+      parts.add('$prefix$body');
       used += lineLen + sepLen;
       continue;
     }
-    final tail = _utf16SafeTailOfPrefixed(prefix, message.content, remaining);
+    final tail = _utf16SafeTailOfPrefixed(prefix, body, remaining);
     if (tail.isNotEmpty) parts.add(tail);
     break;
   }
@@ -249,6 +350,7 @@ String _utf16SafeTailOfPrefixed(String prefix, String content, int maxChars) {
 List<String> chunkMessagesForCompression(
   List<ChatMessage> messages, {
   required int maxChars,
+  required String Function(int) quoteMarker,
 }) {
   if (maxChars <= 0) return const <String>[];
   final chunks = <String>[];
@@ -261,7 +363,10 @@ List<String> chunkMessagesForCompression(
   }
 
   for (final message in messages) {
-    final line = conversationLineForCompression(message);
+    final line = conversationLineForCompression(
+      message,
+      quoteMarker: quoteMarker,
+    );
     if (line == null) continue;
     if (line.length > maxChars) {
       flush();
@@ -319,6 +424,7 @@ List<String> buildCompressRequestContents(
   List<ChatMessage> messages,
   CompressContextOptions options, {
   int safeRequestChars = CompressContextOptions.safeRequestChars,
+  required String Function(int) quoteMarker,
 }) {
   if (options.mode == CompressContextLimitMode.start ||
       options.mode == CompressContextLimitMode.recent) {
@@ -327,19 +433,23 @@ List<String> buildCompressRequestContents(
       messages,
       mode: options.mode,
       maxChars: maxChars,
+      quoteMarker: quoteMarker,
     );
     if (bounded.trim().isEmpty) return const <String>[];
     if (bounded.length <= safeRequestChars) return [bounded];
     return splitUtf16SafeChunks(bounded, safeRequestChars);
   }
-  return chunkMessagesForCompression(messages, maxChars: safeRequestChars);
+  return chunkMessagesForCompression(
+    messages,
+    maxChars: safeRequestChars,
+    quoteMarker: quoteMarker,
+  );
 }
 
 /// Select the trailing messages starting at the last [keepUserMessages]
-/// user messages (user messages = role 'user' with non-empty content), so
-/// the kept region always starts with a user message. When the requested
-/// count covers all user messages, returns the full list (nothing left to
-/// summarize).
+/// user messages, including attachment-only inputs. Leading summaries stay
+/// outside the retained region so an explicit original-history reread can
+/// regenerate them even when all raw user messages are retained.
 List<ChatMessage> selectKeepRecentMessages(
   List<ChatMessage> messages,
   int keepUserMessages,
@@ -348,30 +458,21 @@ List<ChatMessage> selectKeepRecentMessages(
   final userIndices = <int>[];
   for (var i = 0; i < messages.length; i++) {
     final m = messages[i];
-    if (m.role == 'user' && m.content.trim().isNotEmpty) {
+    if (isCompressionUserMessage(m)) {
       userIndices.add(i);
     }
   }
   if (userIndices.isEmpty) return const <ChatMessage>[];
-  if (userIndices.length <= keepUserMessages) return List.of(messages);
+  if (userIndices.length <= keepUserMessages) {
+    return messages.skipWhile(ContextOperation.isSummary).toList();
+  }
   return messages.sublist(userIndices[userIndices.length - keepUserMessages]);
 }
 
 /// Number of user messages in a collapsed list (role 'user', non-empty
 /// content) — the count that [selectKeepRecentMessages] counts against.
 int countUserMessages(List<ChatMessage> messages) {
-  return messages
-      .where((m) => m.role == 'user' && m.content.trim().isNotEmpty)
-      .length;
-}
-
-/// Default keep count for the keep-recent mode, scaling with conversation
-/// size (<5 user messages → 1, <10 → 2, ≥10 → 3) so a small conversation's
-/// default never covers all of its user messages.
-int defaultKeepUserMessageCountFor(int userMessageCount) {
-  if (userMessageCount < 5) return 1;
-  if (userMessageCount < 10) return 2;
-  return 3;
+  return messages.where(isCompressionUserMessage).length;
 }
 
 class CompressionTokenEstimate {
@@ -386,25 +487,6 @@ class CompressionTokenEstimate {
   final int keptTokens;
   final int minResultTokens;
   final int maxResultTokens;
-}
-
-bool _isCjkRune(int rune) {
-  return (rune >= 0x2E80 && rune <= 0x9FFF) ||
-      (rune >= 0xF900 && rune <= 0xFAFF) ||
-      (rune >= 0xFF00 && rune <= 0xFFEF);
-}
-
-int _estimateCharsToTokens(String text) {
-  var cjk = 0;
-  var other = 0;
-  for (final rune in text.runes) {
-    if (_isCjkRune(rune)) {
-      cjk++;
-    } else {
-      other++;
-    }
-  }
-  return (cjk / 1.6 + other / 4).round();
 }
 
 /// Conservative detector for provider context-window / prompt-too-long errors.
@@ -531,7 +613,7 @@ CompressionTokenEstimate estimateCompressionTokens({
   required String totalText,
   required String keptText,
 }) {
-  final totalTokens = _estimateCharsToTokens(totalText);
+  final totalTokens = estimateTokens(totalText);
   final totalChars = totalText.length;
   if (totalChars == 0) {
     return const CompressionTokenEstimate(

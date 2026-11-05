@@ -13,6 +13,8 @@ class ChatInputOverlayLayout extends StatelessWidget {
 
   static const double _topOverlayTailHeight = 16;
   static const double _bottomOverlayFadeHeight = 180;
+  // Leaves room for badges riding 12px above the composer's top edge.
+  static const double _bottomOverlayTopGap = 12;
 
   final double topInset;
   final Widget content;
@@ -23,6 +25,9 @@ class ChatInputOverlayLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Match the composer's SafeArea, including its zero padding above the IME.
+    final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
+
     return Stack(
       children: [
         Positioned.fill(
@@ -89,14 +94,22 @@ class ChatInputOverlayLayout extends StatelessWidget {
             ],
           ),
         ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: UnconstrainedBox(
-            constrainedAxis: Axis.horizontal,
-            alignment: Alignment.bottomCenter,
-            child: bottomOverlay,
-          ),
+        // The overlay may grow up to the top bar (an expanded composer does)
+        // but never behind it.
+        Positioned.fill(
+          top: topInset + _bottomOverlayTopGap,
+          child: Align(alignment: Alignment.bottomCenter, child: bottomOverlay),
         ),
+        // SafeArea padding is not hit-testable. Keep gestures starting there
+        // from reaching the full-height message list behind the composer.
+        if (bottomSafeInset > 0)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: bottomSafeInset,
+            child: const AbsorbPointer(child: SizedBox.expand()),
+          ),
       ],
     );
   }

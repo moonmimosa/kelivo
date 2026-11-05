@@ -92,6 +92,12 @@ void main() {
             lastSummarizedMessageCount: 5,
             chatSuggestions: const ['next'],
             injectedMemoryHash: 'source-memory',
+            extras: const {
+              'workspace.id': 'workspace',
+              'custom': 42,
+              'tools.permission_mode': 'fullAccess',
+              'workspace.allowAll': true,
+            },
           ),
         ],
         messages: [
@@ -124,10 +130,18 @@ void main() {
 
       expect(fork, isNotNull);
       expect(fork!.id, isNot('source'));
+      expect(fork.extras, {'workspace.id': 'workspace', 'custom': 42});
+      expect((await repository.getConversation(fork.id))!.extras, fork.extras);
+      expect(
+        (await repository.getConversation(
+          'source',
+        ))!.extras['tools.permission_mode'],
+        'fullAccess',
+      );
       expect(fork.title, 'Fork title');
       expect(fork.assistantId, 'assistant');
       expect(fork.isPinned, isFalse);
-      expect(fork.mcpServerIds, isEmpty);
+      expect(fork.mcpServerIds, const ['mcp-server']);
       expect(fork.truncateIndex, -1);
       expect(fork.summary, isNull);
       expect(fork.chatSuggestions, isEmpty);

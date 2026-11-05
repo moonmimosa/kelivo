@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
 
@@ -8,6 +9,8 @@ class IosFormTextField extends StatelessWidget {
     required this.label,
     required this.controller,
     this.hintText,
+    this.suffix,
+    this.prefix,
     this.maxLines = 1,
     this.minLines,
     this.inlineLabel,
@@ -16,6 +19,7 @@ class IosFormTextField extends StatelessWidget {
     this.keyboardType,
     this.textAlign,
     this.autofocus = false,
+    this.obscureText = false,
     this.enabled = true,
     this.onChanged,
     this.onSubmitted,
@@ -26,11 +30,22 @@ class IosFormTextField extends StatelessWidget {
     this.textCapitalization = TextCapitalization.none,
     this.autocorrect = true,
     this.enableSuggestions = true,
+    this.focusNode,
+    this.readOnly = false,
+    this.textStyle,
+    this.textDirection,
+    this.fieldDecoration,
+    this.suffixIconConstraints,
+    this.inputFormatters,
+    this.compact = false,
   });
 
+  /// Compact painted field with an unchanged 44 dp interaction area.
+  final bool compact;
   final String label;
   final TextEditingController controller;
   final String? hintText;
+  final Widget? suffix, prefix;
   final int maxLines;
   final int? minLines;
   final bool? inlineLabel;
@@ -39,6 +54,7 @@ class IosFormTextField extends StatelessWidget {
   final TextInputType? keyboardType;
   final TextAlign? textAlign;
   final bool autofocus;
+  final bool obscureText;
   final bool enabled;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
@@ -49,6 +65,13 @@ class IosFormTextField extends StatelessWidget {
   final TextCapitalization textCapitalization;
   final bool autocorrect;
   final bool enableSuggestions;
+  final FocusNode? focusNode;
+  final bool readOnly;
+  final TextStyle? textStyle;
+  final TextDirection? textDirection;
+  final BoxDecoration? fieldDecoration;
+  final BoxConstraints? suffixIconConstraints;
+  final List<TextInputFormatter>? inputFormatters;
 
   bool get _useInlineLabel => inlineLabel ?? (maxLines == 1);
 
@@ -87,12 +110,17 @@ class IosFormTextField extends StatelessWidget {
 
     Widget field = TextField(
       controller: controller,
+      focusNode: focusNode,
+      readOnly: readOnly,
+      inputFormatters: inputFormatters,
       maxLines: maxLines,
       minLines: minLines,
       autofocus: autofocus,
+      obscureText: obscureText,
       enabled: enabled,
       keyboardType: keyboardType,
       textAlign: textAlign ?? _defaultTextAlign(),
+      textDirection: textDirection,
       textAlignVertical: maxLines == 1
           ? TextAlignVertical.center
           : TextAlignVertical.top,
@@ -113,23 +141,58 @@ class IosFormTextField extends StatelessWidget {
               });
             }
           : null,
-      style: TextStyle(
-        fontSize: 15,
-        fontWeight: AppFontWeights.medium,
-        color: valueColor,
-        height: maxLines > 1 ? 1.25 : 1.15,
-      ),
+      style:
+          textStyle ??
+          TextStyle(
+            fontSize: 15,
+            fontWeight: AppFontWeights.medium,
+            color: valueColor,
+            height: maxLines > 1 ? 1.25 : 1.0,
+          ),
+      strutStyle: maxLines == 1 && textStyle == null
+          ? const StrutStyle(
+              fontSize: 15,
+              height: 1.0,
+              leading: 0,
+              forceStrutHeight: true,
+            )
+          : null,
       decoration: InputDecoration(
         isDense: true,
-        isCollapsed: true,
+        constraints: compact && maxLines == 1
+            ? const BoxConstraints(minHeight: 44)
+            : null,
+        isCollapsed: maxLines > 1,
         hintText: hintText,
-        hintStyle: TextStyle(
-          fontSize: 15,
-          fontWeight: AppFontWeights.medium,
-          color: hintColor,
-        ),
+        // InputDecorator's dense layout ignores a minimum height when placing
+        // text. A zero-width accessory strut centers the line in the full tap
+        // area, including fields without a visible prefix or suffix.
+        prefixIcon:
+            prefix ??
+            (compact && maxLines == 1 ? const SizedBox.shrink() : null),
+        prefixIconConstraints: prefix == null && !(compact && maxLines == 1)
+            ? null
+            : BoxConstraints(
+                minWidth: prefix == null ? 0 : 28,
+                minHeight: compact ? 44 : 36,
+              ),
+        suffixIcon: suffix,
+        suffixIconConstraints: suffix == null
+            ? null
+            : suffixIconConstraints ??
+                  const BoxConstraints.tightFor(width: 36, height: 36),
+        hintStyle:
+            textStyle?.copyWith(color: hintColor) ??
+            TextStyle(
+              fontSize: 15,
+              fontWeight: AppFontWeights.medium,
+              color: hintColor,
+              height: maxLines > 1 ? 1.25 : 1.0,
+            ),
         border: InputBorder.none,
-        contentPadding: EdgeInsets.zero,
+        contentPadding: maxLines == 1
+            ? EdgeInsets.symmetric(vertical: compact ? 0 : 10)
+            : EdgeInsets.zero,
       ),
     );
 
@@ -165,14 +228,13 @@ class IosFormTextField extends StatelessWidget {
       final fieldWidget = Container(
         constraints: const BoxConstraints(minHeight: 40),
         alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: enabled ? fieldBg : fieldBg.withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        padding: EdgeInsets.symmetric(
-          horizontal: fieldHorizontalPadding,
-          vertical: 9,
-        ),
+        decoration:
+            fieldDecoration ??
+            BoxDecoration(
+              color: enabled ? fieldBg : fieldBg.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(10),
+            ),
+        padding: EdgeInsets.symmetric(horizontal: fieldHorizontalPadding),
         child: field,
       );
       return Padding(
@@ -193,19 +255,47 @@ class IosFormTextField extends StatelessWidget {
       );
     }
 
-    final fieldBox = Container(
-      constraints: maxLines == 1 ? const BoxConstraints(minHeight: 40) : null,
-      alignment: maxLines == 1 ? Alignment.centerLeft : Alignment.topLeft,
-      decoration: BoxDecoration(
-        color: enabled ? fieldBg : fieldBg.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      padding: EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: maxLines > 1 ? 12 : 9,
-      ),
-      child: field,
-    );
+    final decoration =
+        fieldDecoration ??
+        BoxDecoration(
+          color: enabled ? fieldBg : fieldBg.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(12),
+        );
+    final fieldBox = compact
+        ? Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned.fill(
+                top: maxLines == 1 ? 4 : 0,
+                bottom: maxLines == 1 ? 4 : 0,
+                child: DecoratedBox(decoration: decoration),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: Padding(
+                  padding: EdgeInsetsDirectional.fromSTEB(
+                    prefix == null ? 12 : 6,
+                    maxLines > 1 ? 8 : 0,
+                    12,
+                    maxLines > 1 ? 8 : 0,
+                  ),
+                  child: field,
+                ),
+              ),
+            ],
+          )
+        : Container(
+            constraints: maxLines == 1
+                ? const BoxConstraints(minHeight: 40)
+                : null,
+            alignment: maxLines == 1 ? Alignment.centerLeft : Alignment.topLeft,
+            decoration: decoration,
+            padding: EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: maxLines > 1 ? 12 : 0,
+            ),
+            child: field,
+          );
 
     return Padding(
       padding: resolvedOuterPadding,

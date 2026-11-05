@@ -6,7 +6,6 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/screen_wakelock.dart';
-import '../../../core/utils/scheduler_idle.dart';
 import 'message_render_model.dart';
 
 /// Initial window for a conversation switch, loaded by
@@ -18,12 +17,14 @@ class FetchedConversationWindow {
     required this.page,
     required this.versionSelections,
     required this.needsVisibleGroupPreloadRetry,
+    this.versionHeaders = const [],
   });
 
   final Conversation conversation;
   final LoadedTimelinePage? page;
   final Map<String, int> versionSelections;
   final bool needsVisibleGroupPreloadRetry;
+  final List<ChatMessage> versionHeaders;
 }
 
 /// Controller for managing conversation state in the home page.
@@ -67,6 +68,10 @@ class ChatController extends ChangeNotifier {
 
   /// versionCount from the latest loaded timeline window, keyed by groupId.
   Map<String, int> _windowVersionCounts = <String, int>{};
+  final Map<String, List<ChatMessage>> _versionHeaders = {};
+  int _versionSelectionSerial = 0;
+  final Map<String, int> _pendingVersionSelections = {};
+  Future<void> _versionSelectionWrites = Future<void>.value();
   bool get hasMoreBefore => _loadedStartIndex > 0;
   bool get hasMoreAfter =>
       _loadedStartIndex + _messages.length < _totalMessageCount;
@@ -75,13 +80,14 @@ class ChatController extends ChangeNotifier {
   bool _isLoadingWindow = false;
   bool get isLoadingWindow => _isLoadingWindow;
 
-  /// Serial of the latest window load; only it may clear [_isLoadingWindow].
+  /// Serial of the latest window load; only it may publish a loaded page.
   int _windowLoadSerial = 0;
 
-  /// Slot budget for the idle cache backfill: the current conversation's
-  /// cache ceiling is its full history or this threshold, whichever is lower.
-  @visibleForTesting
-  static const int idleCacheBackfillSlotLimit = 5000;
+  /// Supersede an asynchronous navigation while retaining the visible page.
+  void cancelPendingWindowLoad() {
+    _windowLoadSerial++;
+    _isLoadingWindow = false;
+  }
 
   /// Selected version per message group (groupId -> selected version index).
   Map<String, int> _versionSelections = <String, int>{};
@@ -137,8 +143,12 @@ class ChatController extends ChangeNotifier {
         _chatService.getMessageCount(conversation.id) != 0) {
       throw StateError('persisted_conversation_requires_async_open');
     }
+    cancelPendingWindowLoad();
     _currentConversation = conversation;
     _messages = [];
+    _versionHeaders.clear();
+    _versionSelectionSerial++;
+    _pendingVersionSelections.clear();
     _loadedStartIndex = 0;
     _totalMessageCount = 0;
     _windowVersionCounts = <String, int>{};
@@ -147,8 +157,12 @@ class ChatController extends ChangeNotifier {
   }
 
   Future<void> setCurrentConversationAndLoad(Conversation? conversation) async {
+    cancelPendingWindowLoad();
     _currentConversation = conversation;
     _messages = [];
+    _versionHeaders.clear();
+    _versionSelectionSerial++;
+    _pendingVersionSelections.clear();
     _loadedStartIndex = 0;
     _totalMessageCount = 0;
     _windowVersionCounts = <String, int>{};
@@ -187,15 +201,13 @@ class ChatController extends ChangeNotifier {
           slot.message.groupId ?? slot.message.id,
     };
     var needsVisibleGroupPreloadRetry = false;
+    var versionHeaders = <ChatMessage>[];
     if (groupIds.isNotEmpty) {
       try {
-        await Future.wait([
-          _chatService.loadMessagesForGroups(conversation.id, groupIds),
-          _chatService.loadFirstMessageIndicesForGroups(
-            conversation.id,
-            groupIds,
-          ),
-        ]);
+        versionHeaders = await _chatService.loadMessageVersionHeaders(
+          conversation.id,
+          groupIds,
+        );
       } catch (_) {
         needsVisibleGroupPreloadRetry = true;
       }
@@ -205,6 +217,7 @@ class ChatController extends ChangeNotifier {
       page: page,
       versionSelections: versionSelections,
       needsVisibleGroupPreloadRetry: needsVisibleGroupPreloadRetry,
+      versionHeaders: versionHeaders,
     );
   }
 
@@ -215,11 +228,12 @@ class ChatController extends ChangeNotifier {
     FetchedConversationWindow fetched, {
     VoidCallback? onDeferredGroupDataLoaded,
   }) {
-    _windowLoadSerial++;
-    _isLoadingWindow = false;
+    cancelPendingWindowLoad();
     _currentConversation = fetched.conversation;
     _replaceWindow(fetched.page);
     _versionSelections = fetched.versionSelections;
+    _versionHeaders.clear();
+    _storeVersionHeaders(fetched.versionHeaders);
     notifyListeners();
     if (fetched.needsVisibleGroupPreloadRetry) {
       unawaited(
@@ -232,7 +246,6 @@ class ChatController extends ChangeNotifier {
             .catchError((Object _) {}),
       );
     }
-    _scheduleIdleCacheBackfill(fetched.conversation.id);
   }
 
   /// Update the current conversation reference (e.g., after title change).
@@ -269,9 +282,13 @@ class ChatController extends ChangeNotifier {
     final conversation = await _chatService.createDraftConversation(
       title: title,
       assistantId: assistantId,
+      reuseNewEntry: true,
     );
     _currentConversation = conversation;
     _messages = [];
+    _versionHeaders.clear();
+    _versionSelectionSerial++;
+    _pendingVersionSelections.clear();
     _loadedStartIndex = 0;
     _totalMessageCount = 0;
     _windowVersionCounts = <String, int>{};
@@ -287,8 +304,12 @@ class ChatController extends ChangeNotifier {
   }
 
   void _clearCurrentConversationState() {
+    cancelPendingWindowLoad();
     _currentConversation = null;
     _messages = [];
+    _versionHeaders.clear();
+    _versionSelectionSerial++;
+    _pendingVersionSelections.clear();
     _loadedStartIndex = 0;
     _totalMessageCount = 0;
     _windowVersionCounts = <String, int>{};
@@ -304,51 +325,16 @@ class ChatController extends ChangeNotifier {
         limit: ChatService.defaultTimelineInitialSlots,
       );
       // Discard the page if the conversation changed while loading.
-      if (_currentConversation?.id != conversationId) return;
+      if (_currentConversation?.id != conversationId ||
+          serial != _windowLoadSerial) {
+        return;
+      }
       _replaceWindow(page);
     } finally {
       if (serial == _windowLoadSerial) _isLoadingWindow = false;
     }
     invalidateCache();
     await _preloadVisibleGroupData();
-    _scheduleIdleCacheBackfill(conversationId);
-  }
-
-  /// Queues a silent full-cache backfill for [conversationId] to run once the
-  /// UI is idle (i.e. after the first frame of a freshly opened window).
-  void _scheduleIdleCacheBackfill(String conversationId) {
-    final Future<void> task;
-    try {
-      task = waitForSchedulerIdle().then(
-        (_) => backfillCurrentConversationCache(conversationId),
-      );
-    } catch (_) {
-      // No scheduler binding (bare unit tests): warm-up is optional.
-      return;
-    }
-    unawaited(task.catchError((Object _) {}));
-  }
-
-  /// Silently warms the full message cache for the current conversation.
-  ///
-  /// Cache warm-up only: no listeners are notified and every guard failure
-  /// just skips the load. Guards: the conversation must still be current, its
-  /// slot count must fit [idleCacheBackfillSlotLimit], and it must not be
-  /// generating (a streaming write owns the single connection queue). The
-  /// current conversation is exempt from cache eviction; if a backfill pushes
-  /// the cache over budget, tail truncation (cache plan measure 13) keeps the
-  /// newest entries.
-  @visibleForTesting
-  Future<void> backfillCurrentConversationCache(String conversationId) async {
-    if (_currentConversation?.id != conversationId) return;
-    if (_totalMessageCount > idleCacheBackfillSlotLimit) return;
-    if (isConversationLoading(conversationId)) return;
-    if (_chatService.isConversationFullyCached(conversationId)) return;
-    try {
-      await _chatService.loadMessages(conversationId);
-    } catch (_) {
-      // Warm-up failures lose nothing user-visible.
-    }
   }
 
   void _replaceWindow(LoadedTimelinePage? page) {
@@ -450,13 +436,18 @@ class ChatController extends ChangeNotifier {
   Future<bool> loadStartWindow() async {
     final conversation = _currentConversation;
     if (conversation == null) return false;
+    final serial = ++_windowLoadSerial;
+    _isLoadingWindow = false;
     final page = await _chatService.loadTimelinePage(
       conversation.id,
       fromStart: true,
       limit: ChatService.defaultLoadedWindowMax,
     );
     // Discard the page if the conversation changed while loading.
-    if (_currentConversation?.id != conversation.id) return false;
+    if (_currentConversation?.id != conversation.id ||
+        serial != _windowLoadSerial) {
+      return false;
+    }
     _replaceWindow(page);
     await _preloadVisibleGroupData();
     notifyListeners();
@@ -466,12 +457,17 @@ class ChatController extends ChangeNotifier {
   Future<bool> loadEndWindow() async {
     final conversation = _currentConversation;
     if (conversation == null) return false;
+    final serial = ++_windowLoadSerial;
+    _isLoadingWindow = false;
     final page = await _chatService.loadTimelinePage(
       conversation.id,
       limit: ChatService.defaultLoadedWindowMax,
     );
     // Discard the page if the conversation changed while loading.
-    if (_currentConversation?.id != conversation.id) return false;
+    if (_currentConversation?.id != conversation.id ||
+        serial != _windowLoadSerial) {
+      return false;
+    }
     _replaceWindow(page);
     await _preloadVisibleGroupData();
     notifyListeners();
@@ -514,7 +510,10 @@ class ChatController extends ChangeNotifier {
         limit: limit,
       );
       // Discard the page if the conversation changed while loading.
-      if (_currentConversation?.id != conversation.id) return false;
+      if (_currentConversation?.id != conversation.id ||
+          serial != _windowLoadSerial) {
+        return false;
+      }
       if (page == null || page.slots.isEmpty) return false;
       _replaceWindow(page);
     } finally {
@@ -532,7 +531,7 @@ class ChatController extends ChangeNotifier {
     final conversation = _currentConversation;
     if (conversation == null) return false;
     if (survivingVersionsByGroup != null &&
-        _removeRevisionsFromWindow(
+        await _removeRevisionsFromWindow(
           removedRevisionIds,
           survivingVersionsByGroup,
         )) {
@@ -541,6 +540,7 @@ class ChatController extends ChangeNotifier {
       notifyListeners();
       return true;
     }
+    if (_currentConversation?.id != conversation.id) return false;
     String? anchorId;
     if (hasMoreAfter) {
       for (final message in _messages) {
@@ -575,14 +575,15 @@ class ChatController extends ChangeNotifier {
   ///
   /// [survivingVersionsByGroup] must contain an entry for every group that
   /// lost at least one revision, holding the versions that remain (empty when
-  /// the whole slot is gone). Returns false when the mutation cannot be
+  /// the whole slot is gone). These may be headers; only replacement bodies
+  /// are hydrated. Returns false when the mutation cannot be
   /// expressed as an in-window edit — deleted revisions belonging to slots
   /// outside the loaded window, missing survivor data, or a window that would
   /// empty out — in which case the caller falls back to the full reload.
-  bool _removeRevisionsFromWindow(
+  Future<bool> _removeRevisionsFromWindow(
     Set<String> removedRevisionIds,
     Map<String, List<ChatMessage>> survivingVersionsByGroup,
-  ) {
+  ) async {
     if (removedRevisionIds.isEmpty || _messages.isEmpty) return false;
     final windowSlotIds = <String>{
       for (final message in _messages) message.groupId ?? message.id,
@@ -595,6 +596,7 @@ class ChatController extends ChangeNotifier {
 
     final next = <ChatMessage>[];
     final nextVersionCounts = Map<String, int>.of(_windowVersionCounts);
+    final replacementIds = <String>{};
     var removedSlotCount = 0;
     for (final message in _messages) {
       final groupId = message.groupId ?? message.id;
@@ -624,9 +626,37 @@ class ChatController extends ChangeNotifier {
           }
         }
       }
-      next.add(selected ?? sorted.last);
+      final replacement = selected ?? sorted.last;
+      next.add(replacement);
+      replacementIds.add(replacement.id);
     }
     if (next.isEmpty) return false;
+
+    if (replacementIds.isNotEmpty) {
+      final conversationId = _currentConversation?.id;
+      final serial = _windowLoadSerial;
+      final previous = List<ChatMessage>.of(_messages);
+      final selections = Map<String, int>.of(_versionSelections);
+      final hydrated = {
+        for (final message in await _chatService.loadMessagesByIds(
+          replacementIds.toList(),
+        ))
+          message.id: message,
+      };
+      if (_currentConversation?.id != conversationId ||
+          serial != _windowLoadSerial ||
+          !listEquals(previous, _messages) ||
+          !mapEquals(selections, _versionSelections)) {
+        return false;
+      }
+      for (var index = 0; index < next.length; index++) {
+        final id = next[index].id;
+        if (!replacementIds.contains(id)) continue;
+        final replacement = hydrated[id];
+        if (replacement == null) return false;
+        next[index] = replacement;
+      }
+    }
 
     _messages = next;
     _totalMessageCount = math.max(
@@ -744,7 +774,6 @@ class ChatController extends ChangeNotifier {
   }) {
     return _chatService.loadSelectedContextMessages(
       conversation.id,
-      truncateIndex: conversation.truncateIndex,
       limit: maxMessages,
       throughRevisionId: throughRevisionId,
       includeFollowingAssistant: includeFollowingAssistant,
@@ -759,21 +788,42 @@ class ChatController extends ChangeNotifier {
     return current;
   }
 
+  void _storeVersionHeaders(Iterable<ChatMessage> headers) {
+    final visibleGroups = {for (final m in _messages) m.groupId ?? m.id};
+    _versionHeaders.removeWhere((group, _) => !visibleGroups.contains(group));
+    final incoming = <String, List<ChatMessage>>{};
+    for (final header in headers) {
+      final group = header.groupId ?? header.id;
+      if (visibleGroups.contains(group)) {
+        incoming.putIfAbsent(group, () => []).add(header);
+      }
+    }
+    _versionHeaders.addAll(incoming);
+  }
+
   Future<void> _preloadVisibleGroupData() async {
     final conversation = _currentConversation;
-    if (conversation == null || _messages.isEmpty) return;
-    final groupIds = <String>{
-      for (final message in _messages)
-        if ((_windowVersionCounts[message.groupId ?? message.id] ?? 1) > 1 ||
-            message.version > 0 ||
-            _versionSelections.containsKey(message.groupId ?? message.id))
-          message.groupId ?? message.id,
+    if (conversation == null || _messages.isEmpty) {
+      _versionHeaders.clear();
+      return;
+    }
+    final serial = _windowLoadSerial;
+    final groups = <String>{
+      for (final m in _messages)
+        if ((_windowVersionCounts[m.groupId ?? m.id] ?? 1) > 1 ||
+            m.version > 0 ||
+            _versionSelections.containsKey(m.groupId ?? m.id))
+          m.groupId ?? m.id,
     };
-    if (groupIds.isEmpty) return;
-    await Future.wait([
-      _chatService.loadMessagesForGroups(conversation.id, groupIds),
-      _chatService.loadFirstMessageIndicesForGroups(conversation.id, groupIds),
-    ]);
+    final headers = await _chatService.loadMessageVersionHeaders(
+      conversation.id,
+      groups,
+    );
+    if (_currentConversation?.id != conversation.id ||
+        serial != _windowLoadSerial) {
+      return;
+    }
+    _storeVersionHeaders(headers);
     invalidateCache();
   }
 
@@ -1089,16 +1139,57 @@ class ChatController extends ChangeNotifier {
   }
 
   /// Set the selected real version number for a message group.
-  Future<void> setSelectedVersion(String groupId, int version) async {
-    _versionSelections[groupId] = version;
-    if (_currentConversation != null) {
-      await _chatService.setSelectedVersion(
-        _currentConversation!.id,
-        groupId,
-        version,
-      );
+  Future<void> setSelectedVersion(
+    String groupId,
+    int version, {
+    String? expectedContextState,
+  }) async {
+    final conversation = _currentConversation;
+    if (conversation == null) return;
+    final serial = ++_versionSelectionSerial;
+    _pendingVersionSelections[groupId] = serial;
+    bool ownsWindow() =>
+        _currentConversation?.id == conversation.id &&
+        _pendingVersionSelections[groupId] == serial;
+    // Preserve click order even when two selectors are used before a write
+    // completes. Hydrating one group must not cancel another group's choice.
+    final write = _versionSelectionWrites
+        .catchError((Object _) {})
+        .then(
+          (_) => _chatService.setSelectedVersion(
+            conversation.id,
+            groupId,
+            version,
+            expectedContextState: expectedContextState,
+          ),
+        );
+    _versionSelectionWrites = write;
+    try {
+      await write;
+      if (!ownsWindow()) return;
+      final index = _messages.indexWhere((m) => (m.groupId ?? m.id) == groupId);
+      if (index >= 0) {
+        final page = await _chatService.loadTimelinePage(
+          conversation.id,
+          aroundRevisionId: _messages[index].id,
+          limit: 1,
+        );
+        if (!ownsWindow()) return;
+        final currentIndex = _messages.indexWhere(
+          (m) => (m.groupId ?? m.id) == groupId,
+        );
+        if (currentIndex >= 0 && page != null && page.slots.isNotEmpty) {
+          _messages[currentIndex] = page.slots.single.message;
+        }
+      }
+      if (!ownsWindow()) return;
+      _versionSelections[groupId] = version;
+      notifyListeners();
+    } finally {
+      if (_pendingVersionSelections[groupId] == serial) {
+        _pendingVersionSelections.remove(groupId);
+      }
     }
-    notifyListeners();
   }
 
   /// Remove version selection for a group.
@@ -1130,12 +1221,6 @@ class ChatController extends ChangeNotifier {
         ScreenWakelock.acquire();
       } else if (!loading && _loadingConversationIds.isEmpty) {
         ScreenWakelock.release();
-      }
-      if (!loading &&
-          _currentConversation?.id == conversationId &&
-          !_chatService.isConversationFullyCached(conversationId)) {
-        // Resume an idle backfill that generation paused.
-        _scheduleIdleCacheBackfill(conversationId);
       }
     }
   }
@@ -1224,7 +1309,9 @@ class ChatController extends ChangeNotifier {
   /// Get messages collapsed by version (cached).
   List<ChatMessage> get collapsedMessages {
     if (_collapsedCache != null) return _collapsedCache!;
-    _collapsedCache = collapseVersions(_messagesWithVisibleGroups());
+    // The window owns hydrated selected bodies. Revision headers supply the
+    // version picker only and must never be rendered as empty message bodies.
+    _collapsedCache = collapseVersions(_messages);
     _collapsedIdToIndex = <String, int>{};
     for (int i = 0; i < _collapsedCache!.length; i++) {
       _collapsedIdToIndex![_collapsedCache![i].id] = i;
@@ -1233,102 +1320,22 @@ class ChatController extends ChangeNotifier {
   }
 
   List<ChatMessage> _messagesWithVisibleGroups() {
-    if (_messagesWithVisibleGroupsCache != null) {
-      return _messagesWithVisibleGroupsCache!;
-    }
-
-    final conversation = _currentConversation;
-    if (conversation == null || _messages.isEmpty) {
-      return _messagesWithVisibleGroupsCache = _messages;
-    }
-
-    final targetGroupIds = <String>{};
-    final versionedGroupIds = <String>{};
-    for (final message in _messages) {
-      final groupId = message.groupId ?? message.id;
-      if (_versionSelections.containsKey(groupId)) {
-        targetGroupIds.add(groupId);
-      }
-      if (message.version > 0) {
-        targetGroupIds.add(groupId);
-        versionedGroupIds.add(groupId);
-      }
-    }
-    if (targetGroupIds.isEmpty) {
-      return _messagesWithVisibleGroupsCache = _messages;
-    }
-
-    final visibleVersions = _chatService.getMessagesForGroups(
-      conversation.id,
-      targetGroupIds,
-    );
-    if (visibleVersions.isEmpty) {
-      return _messagesWithVisibleGroupsCache = _messages;
-    }
-
-    final windowMessagesById = {
-      for (final message in _messages) message.id: message,
-    };
-    final visibleIds = windowMessagesById.keys;
-    final byGroup = <String, List<ChatMessage>>{};
-    for (final cachedMessage in visibleVersions) {
-      final message = windowMessagesById[cachedMessage.id] ?? cachedMessage;
-      final groupId = message.groupId ?? message.id;
-      byGroup.putIfAbsent(groupId, () => <ChatMessage>[]).add(message);
-    }
-
-    Map<String, int> firstIndices = const <String, int>{};
-    if (_loadedStartIndex > 0 && versionedGroupIds.isNotEmpty) {
-      firstIndices = _chatService.getFirstMessageIndicesForGroups(
-        conversation.id,
-        versionedGroupIds,
-      );
-    }
-    final firstLoadedGroupId = _messages.isEmpty
-        ? null
-        : (_messages.first.groupId ?? _messages.first.id);
-    final previousLoadedGroupId = _previousLoadedMessageGroupId(
-      conversation.id,
-    );
-
+    final cached = _messagesWithVisibleGroupsCache;
+    if (cached != null) return cached;
     final result = <ChatMessage>[];
-    final emitted = <String>{};
-    for (final message in _messages) {
-      final groupId = message.groupId ?? message.id;
-      final groupMessages = byGroup[groupId] ?? <ChatMessage>[message];
-      final groupAnchorIndex = firstIndices[groupId] ?? _loadedStartIndex;
-      final startsInsideGroup =
-          groupId == firstLoadedGroupId && groupId == previousLoadedGroupId;
-      if (groupAnchorIndex < _loadedStartIndex &&
-          message.version > 0 &&
-          !startsInsideGroup) {
-        continue;
-      }
-      if (emitted.add(groupId)) {
-        for (final candidate in groupMessages) {
-          result.add(candidate);
-          emitted.add(candidate.id);
+    for (final selected in _messages) {
+      final group = selected.groupId ?? selected.id;
+      final headers = _versionHeaders[group];
+      if (headers == null || headers.isEmpty) {
+        result.add(selected);
+      } else {
+        for (final header in headers) {
+          result.add(header.id == selected.id ? selected : header);
         }
-      } else if (!visibleIds.contains(message.id) && emitted.add(message.id)) {
-        result.add(message);
+        if (!headers.any((h) => h.id == selected.id)) result.add(selected);
       }
     }
-
     return _messagesWithVisibleGroupsCache = result;
-  }
-
-  String? _previousLoadedMessageGroupId(String conversationId) {
-    if (_loadedStartIndex <= 0) return null;
-
-    final previous = _chatService.getMessagesRange(
-      conversationId,
-      start: _loadedStartIndex - 1,
-      limit: 1,
-    );
-    if (previous.isEmpty) return null;
-
-    final message = previous.single;
-    return message.groupId ?? message.id;
   }
 
   /// O(1) lookup of a message's index in the collapsed list.
@@ -1366,10 +1373,7 @@ class ChatController extends ChangeNotifier {
       messages: collapsedMessages,
       byGroup: groupedMessages,
       versionSelections: _versionSelections,
-      versionCounts: {
-        for (final entry in groupedMessages.entries)
-          entry.key: entry.value.length,
-      },
+      versionCounts: _windowVersionCounts,
       contextDividerIndex: _collapsedContextDividerIndex(),
     );
   }
@@ -1425,6 +1429,8 @@ class ChatController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _windowLoadSerial++;
+    _pendingVersionSelections.clear();
     _chatService.removeListener(_syncCurrentConversationWithService);
     cancelAllStreams();
     ScreenWakelock.releaseNow();

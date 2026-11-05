@@ -47,6 +47,11 @@ void main() {
   const defaultFrosted = bool.fromEnvironment('STREAM_FROSTED');
   const timeline = bool.fromEnvironment('STREAM_TIMELINE');
   const richAppend = bool.fromEnvironment('STREAM_RICH_APPEND');
+  const backdropScope = bool.fromEnvironment('STREAM_BACKDROP_SCOPE');
+  const semantics = bool.fromEnvironment(
+    'STREAM_SEMANTICS',
+    defaultValue: true,
+  );
   for (final frosted
       in const bool.fromEnvironment('STREAM_BOTH_STYLES')
           ? [false, true]
@@ -135,7 +140,11 @@ void main() {
               if (timeline) {
                 controller.markStreamingStarted(message.id);
                 if (reasoning) {
-                  await controller.handleReasoningChunk(source.value, state);
+                  await controller.handleReasoningChunk(
+                    source.value,
+                    state,
+                    id: 'profile-reasoning',
+                  );
                 } else {
                   controller.streamingContentNotifier.updateContent(
                     message.id,
@@ -175,64 +184,67 @@ void main() {
                     localizationsDelegates:
                         AppLocalizations.localizationsDelegates,
                     supportedLocales: AppLocalizations.supportedLocales,
-                    home: Scaffold(
-                      body: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (frosted)
-                            const DecoratedBox(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Color(0xffe0d1ff),
-                                    Color(0xffb1e7df),
-                                    Color(0xffffd9c3),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                              ),
-                            ),
-                          if (timeline)
-                            MessageListView(
-                              scrollController: scroll,
-                              listController: listController,
-                              messages: [message],
-                              byGroup: const {},
-                              versionSelections: const {},
-                              reasoning: controller.reasoning,
-                              reasoningSegments: controller.reasoningSegments,
-                              contentSplits: controller.contentSplits,
-                              toolParts: controller.toolParts,
-                              translations: const {},
-                              selecting: false,
-                              selectedItems: const {},
-                              dividerPadding: EdgeInsets.zero,
-                              processingFilesMessageId: processingFiles,
-                              streamingContentNotifier:
-                                  controller.streamingContentNotifier,
-                            )
-                          else
-                            SingleChildScrollView(
-                              controller: scroll,
-                              child: ValueListenableBuilder<String>(
-                                valueListenable: source,
-                                builder: (_, value, _) => ChatMessageWidget(
-                                  message: ChatMessage(
-                                    id: 'profile',
-                                    role: 'assistant',
-                                    content: reasoning ? '' : value,
-                                    conversationId: 'profile',
-                                    isStreaming: true,
+                    home: _StreamingBackdrop(
+                      enabled: backdropScope,
+                      child: Scaffold(
+                        body: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (frosted)
+                              const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Color(0xffe0d1ff),
+                                      Color(0xffb1e7df),
+                                      Color(0xffffd9c3),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
                                   ),
-                                  reasoningText: reasoning ? value : null,
-                                  reasoningLoading: reasoning,
-                                  reasoningStartAt: reasoning ? start : null,
-                                  showModelIcon: false,
                                 ),
                               ),
-                            ),
-                        ],
+                            if (timeline)
+                              MessageListView(
+                                scrollController: scroll,
+                                listController: listController,
+                                messages: [message],
+                                byGroup: const {},
+                                versionSelections: const {},
+                                reasoning: controller.reasoning,
+                                reasoningSegments: controller.reasoningSegments,
+                                contentSplits: controller.contentSplits,
+                                toolParts: controller.toolParts,
+                                translations: const {},
+                                selecting: false,
+                                selectedItems: const {},
+                                dividerPadding: EdgeInsets.zero,
+                                processingFilesMessageId: processingFiles,
+                                streamingContentNotifier:
+                                    controller.streamingContentNotifier,
+                              )
+                            else
+                              SingleChildScrollView(
+                                controller: scroll,
+                                child: ValueListenableBuilder<String>(
+                                  valueListenable: source,
+                                  builder: (_, value, _) => ChatMessageWidget(
+                                    message: ChatMessage(
+                                      id: 'profile',
+                                      role: 'assistant',
+                                      content: reasoning ? '' : value,
+                                      conversationId: 'profile',
+                                      isStreaming: true,
+                                    ),
+                                    reasoningText: reasoning ? value : null,
+                                    reasoningLoading: reasoning,
+                                    reasoningStartAt: reasoning ? start : null,
+                                    showModelIcon: false,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -242,7 +254,14 @@ void main() {
               await tester.pump(const Duration(seconds: 1));
               scroll.jumpTo(scroll.position.maxScrollExtent);
               await tester.pump(const Duration(seconds: 1));
-              if (frosted) expect(find.byType(BackdropFilter), findsWidgets);
+              if (frosted) {
+                expect(
+                  find.byWidgetPredicate(
+                    (widget) => widget is BackdropFilter && widget.enabled,
+                  ),
+                  findsWidgets,
+                );
+              }
               frames.clear();
               final updates = <int>[];
               final elapsed = Stopwatch()..start();
@@ -262,7 +281,11 @@ void main() {
                 source.value += delta;
                 if (timeline) {
                   if (reasoning) {
-                    await controller.handleReasoningChunk(delta, state);
+                    await controller.handleReasoningChunk(
+                      delta,
+                      state,
+                      id: 'profile-reasoning',
+                    );
                   } else {
                     controller.streamingContentNotifier.updateContent(
                       message.id,
@@ -297,6 +320,8 @@ void main() {
                 'frosted': frosted,
                 'timeline': timeline,
                 'richAppend': richAppend,
+                'backdropScope': backdropScope,
+                'semanticsEnabled': semantics,
                 'frames': frames.length,
                 'buildP50Us': _percentile(
                   frames.map((f) => f.buildDuration.inMicroseconds),
@@ -348,9 +373,36 @@ void main() {
           SchedulerBinding.instance.removeTimingsCallback(collect);
         }
       },
+      semanticsEnabled: semantics,
       timeout: const Timeout(Duration(minutes: 30)),
     );
   }
+}
+
+class _StreamingBackdrop extends StatelessWidget {
+  const _StreamingBackdrop({required this.enabled, required this.child});
+  final bool enabled;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => enabled
+      ? ChatFrostedBackdrop(
+          backdrop: const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xffe0d1ff),
+                  Color(0xffb1e7df),
+                  Color(0xffffd9c3),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+          ),
+          child: child,
+        )
+      : child;
 }
 
 int _percentile(Iterable<int> input, double fraction) {

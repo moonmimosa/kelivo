@@ -7,6 +7,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
 import '../../../shared/widgets/section_card.dart';
+import 'context_usage_header.dart';
 
 /// Bottom sheet for mobile: compress context or clear context.
 class ContextManagementSheet extends StatelessWidget {
@@ -15,6 +16,10 @@ class ContextManagementSheet extends StatelessWidget {
     this.onCompress,
     this.onClear,
     this.messageCountLabel,
+    this.conversationId,
+    this.draftText = '',
+    this.onImages,
+    this.onOperations,
   });
 
   final VoidCallback? onCompress;
@@ -22,6 +27,10 @@ class ContextManagementSheet extends StatelessWidget {
 
   /// Messages currently in context, e.g. "12 messages". Shown on the clear row.
   final String? messageCountLabel;
+  final String? conversationId;
+  final String draftText;
+  final VoidCallback? onImages;
+  final VoidCallback? onOperations;
 
   @override
   Widget build(BuildContext context) {
@@ -58,27 +67,61 @@ class ContextManagementSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          _OptionRow(
-            icon: Lucide.package2,
-            label: l10n.compressContext,
-            description: l10n.compressContextDesc,
-            onTap: () {
-              Haptics.light();
-              onCompress?.call();
-            },
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ContextUsageHeader(
+                    conversationId: conversationId,
+                    draftText: draftText,
+                  ),
+                  const SizedBox(height: 16),
+                  if (onOperations != null) ...[
+                    _OptionRow(
+                      icon: Lucide.History,
+                      label: l10n.contextOperationsTitle,
+                      description: l10n.contextOperationsDescription,
+                      onTap: onOperations,
+                      showChevron: true,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (onImages != null) ...[
+                    _OptionRow(
+                      icon: Lucide.Image,
+                      label: l10n.imageContextTitle,
+                      description: l10n.imageContextEntryDescription,
+                      onTap: onImages,
+                      showChevron: true,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  _OptionRow(
+                    icon: Lucide.package2,
+                    label: l10n.compressContext,
+                    description: l10n.compressContextDesc,
+                    onTap: () {
+                      Haptics.light();
+                      onCompress?.call();
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _OptionRow(
+                    icon: Lucide.Eraser,
+                    label: l10n.bottomToolsSheetClearContext,
+                    description: l10n.clearContextDesc,
+                    trailing: messageCountLabel,
+                    onTap: () {
+                      Haptics.light();
+                      onClear?.call();
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 8),
-          _OptionRow(
-            icon: Lucide.Eraser,
-            label: l10n.bottomToolsSheetClearContext,
-            description: l10n.clearContextDesc,
-            trailing: messageCountLabel,
-            onTap: () {
-              Haptics.light();
-              onClear?.call();
-            },
-          ),
-          const SizedBox(height: 8),
         ],
       ),
     );
@@ -92,6 +135,7 @@ class _OptionRow extends StatelessWidget {
     required this.description,
     this.onTap,
     this.trailing,
+    this.showChevron = false,
   });
 
   final IconData icon;
@@ -99,6 +143,7 @@ class _OptionRow extends StatelessWidget {
   final String description;
   final VoidCallback? onTap;
   final String? trailing;
+  final bool showChevron;
 
   @override
   Widget build(BuildContext context) {
@@ -149,6 +194,14 @@ class _OptionRow extends StatelessWidget {
                 fontWeight: AppFontWeights.medium,
                 color: cs.onSurface.withValues(alpha: 0.55),
               ),
+            ),
+          ],
+          if (showChevron) ...[
+            const SizedBox(width: 10),
+            Icon(
+              Lucide.ChevronRight,
+              size: 17,
+              color: cs.onSurface.withValues(alpha: 0.35),
             ),
           ],
         ],

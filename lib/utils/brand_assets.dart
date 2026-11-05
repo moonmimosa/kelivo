@@ -44,6 +44,7 @@ class BrandAssets {
         MapEntry(RegExp(r'tinyfish'), 'tinyfish-color.svg'),
         MapEntry(RegExp(r'fish.?audio|fishaudio'), 'fish-audio.svg'),
         MapEntry(RegExp(r'openrouter'), 'openrouter.svg'),
+        MapEntry(RegExp(r'vercel'), 'vercel.svg'),
         MapEntry(RegExp(r'metaso|秘塔'), 'metaso-color.svg'),
         MapEntry(RegExp(r'meta'), 'meta-color.svg'),
         MapEntry(RegExp(r'tencent'), 'hunyuan-color.svg'),
@@ -124,6 +125,11 @@ class BrandAssets {
       id: 'openrouter',
       label: 'OpenRouter',
       asset: 'assets/icons/openrouter.svg',
+    ),
+    BrandIconOption(
+      id: 'vercel',
+      label: 'Vercel AI Gateway',
+      asset: 'assets/icons/vercel.svg',
     ),
     BrandIconOption(
       id: 'zhipu',
@@ -380,7 +386,9 @@ class BrandAssets {
     'anthropic.svg',
     'grok.svg',
     'xai.svg',
+    'kimi-color.svg',
     'openrouter.svg',
+    'vercel.svg',
     'ollama.svg',
     'github.svg',
     'linkup.svg',
@@ -394,6 +402,20 @@ class BrandAssets {
   };
 
   // Build the LobeHub static SVG CDN URL from an icon name (e.g. 'openai').
+  static List<String> lobehubIconUrls(String name, {bool monochrome = false}) {
+    var n = name.trim().toLowerCase();
+    if (!RegExp(r'^[a-z0-9][a-z0-9-]*$').hasMatch(n)) return const [];
+    if (monochrome) {
+      if (n.endsWith('-color')) n = n.substring(0, n.length - 6);
+      return [lobehubIconUrl(n)];
+    }
+    return [
+      if (!n.endsWith('-color') && !n.endsWith('-text'))
+        lobehubIconUrl('$n-color'),
+      lobehubIconUrl(n),
+    ];
+  }
+
   static String lobehubIconUrl(String name) {
     final n = name.trim().toLowerCase();
     return 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons/$n.svg';

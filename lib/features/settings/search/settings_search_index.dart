@@ -367,7 +367,7 @@ class SettingsSearchIndex {
       (l) => l.settingsPageSearch,
       page: true,
       keywords:
-          'web internet tavily exa brave bing google search 联网 聯網 搜索 搜尋 引擎',
+          'web internet tavily exa brave bing google search fetch url reader 联网 聯網 搜索 搜尋 引擎 抓取 网页 網頁 读取 讀取',
     );
     add(
       'tts',
@@ -548,10 +548,10 @@ class SettingsSearchIndex {
       keywords: 'font size text scale 字号 字號 文字大小 字体大小',
     );
     add(
-      'displaySettingsPageAutoScrollIdleTitle',
+      'displaySettingsPageAutoScrollEnableTitle',
       SettingsSearchDestination.display,
-      (l) => l.displaySettingsPageAutoScrollIdleTitle,
-      keywords: 'auto scroll 自动滚动 自動捲動 延迟 延遲',
+      (l) => l.displaySettingsPageAutoScrollEnableTitle,
+      keywords: 'auto scroll follow bottom streaming 自动滚动 自動捲動 跟随 跟隨 底部 流式',
     );
     add(
       'displaySettingsPageChatBackgroundMaskTitle',
@@ -616,6 +616,12 @@ class SettingsSearchIndex {
       keywords: 'token usage 令牌 消耗 用量',
     );
     add(
+      'displaySettingsPageShowTotalTokensTitle',
+      SettingsSearchDestination.chatDisplay,
+      (l) => l.displaySettingsPageShowTotalTokensTitle,
+      keywords: 'token usage total API finish 累计 整轮 消耗 用量',
+    );
+    add(
       'displaySettingsPageShowThinkingCardsTitle',
       SettingsSearchDestination.chatDisplay,
       (l) => l.displaySettingsPageShowThinkingCardsTitle,
@@ -631,6 +637,11 @@ class SettingsSearchIndex {
       (l) => l.displaySettingsPageShowProducedFilesTitle,
     );
     add(
+      'displaySettingsShowReasoningLevelBadge',
+      SettingsSearchDestination.chatDisplay,
+      (l) => l.displaySettingsShowReasoningLevelBadge,
+    );
+    add(
       'displaySettingsPageEnableDollarLatexTitle',
       SettingsSearchDestination.rendering,
       (l) => l.displaySettingsPageEnableDollarLatexTitle,
@@ -640,6 +651,18 @@ class SettingsSearchIndex {
       'displaySettingsPageEnableMathTitle',
       SettingsSearchDestination.rendering,
       (l) => l.displaySettingsPageEnableMathTitle,
+    );
+    add(
+      'displaySettingsPageUseLegacyInlineCodeStyleTitle',
+      SettingsSearchDestination.rendering,
+      (l) => l.displaySettingsPageUseLegacyInlineCodeStyleTitle,
+      keywords: 'inline code legacy classic style 行内代码 行內程式碼 旧版 舊版 样式 樣式',
+    );
+    add(
+      'displaySettingsPageUseLegacyCodeBlockStyleTitle',
+      SettingsSearchDestination.rendering,
+      (l) => l.displaySettingsPageUseLegacyCodeBlockStyleTitle,
+      keywords: 'code block legacy classic style 代码块 程式碼區塊 旧版 舊版 样式 樣式',
     );
     add(
       'displaySettingsPageEnableUserMarkdownTitle',
@@ -657,6 +680,12 @@ class SettingsSearchIndex {
       (l) => l.displaySettingsPageEnableAssistantMarkdownTitle,
     );
     add(
+      'displaySettingsShowGenUiHeader',
+      SettingsSearchDestination.rendering,
+      (l) => l.displaySettingsShowGenUiHeader,
+      keywords: 'genui intelligent interactive header immersive 交互界面 标题栏 沉浸',
+    );
+    add(
       'displaySettingsPageAutoCollapseCodeBlockTitle',
       SettingsSearchDestination.rendering,
       (l) => l.displaySettingsPageAutoCollapseCodeBlockTitle,
@@ -667,6 +696,14 @@ class SettingsSearchIndex {
         'displaySettingsPageMobileCodeBlockWrapTitle',
         SettingsSearchDestination.rendering,
         (l) => l.displaySettingsPageMobileCodeBlockWrapTitle,
+      );
+    }
+    if (!kIsWeb && platform == TargetPlatform.iOS) {
+      add(
+        'displaySettingsPageIosNativeSelectionMenuTitle',
+        SettingsSearchDestination.behavior,
+        (l) => l.displaySettingsPageIosNativeSelectionMenuTitle,
+        keywords: 'liquid glass native selection menu 液态玻璃 液態玻璃 原生 选择 選取 菜单 選單',
       );
     }
     add(
@@ -907,13 +944,6 @@ class SettingsSearchIndex {
         'displaySettingsPageSendShortcutTitle',
         SettingsSearchDestination.behavior,
         (l) => l.displaySettingsPageSendShortcutTitle,
-      );
-    }
-    if (desktop) {
-      add(
-        'displaySettingsPageAutoScrollEnableTitle',
-        SettingsSearchDestination.display,
-        (l) => l.displaySettingsPageAutoScrollEnableTitle,
       );
     }
 

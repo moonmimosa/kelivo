@@ -8,8 +8,10 @@ import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.os.StatFs
 import android.provider.DocumentsContract
+import android.webkit.MimeTypeMap
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.android.FlutterSurfaceView
+import io.flutter.embedding.android.FlutterView
 import io.flutter.embedding.engine.FlutterEngine
 import com.psyche.kelivo.workspace.WorkspacePlugin
 import io.flutter.plugin.common.MethodChannel
@@ -18,11 +20,13 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.OutputStream
 import java.util.concurrent.Executors
+import java.util.Locale
 
 class MainActivity : FlutterActivity() {
     private val kelivo get() = application as KelivoApplication
     private var reusedEngine = false
     private val highRefreshRate by lazy { HighRefreshRateController(window) }
+    private var selectionMenu: AndroidSelectionMenu? = null
 
     override fun provideFlutterEngine(context: android.content.Context): FlutterEngine {
         reusedEngine = kelivo.hasEngine
@@ -49,9 +53,16 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onStop() {
+        selectionMenu?.dismiss()
         highRefreshRate.stop()
         kelivo.backgroundRuntime.setForeground(false)
         super.onStop()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (selectionMenu?.handleBack() == true) return
+        super.onBackPressed()
     }
 
     private companion object {
@@ -107,6 +118,10 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
          super.configureFlutterEngine(flutterEngine)
+        kelivo.messageInput.attachActivity(this)
+        selectionMenu = AndroidSelectionMenu(flutterEngine.dartExecutor.binaryMessenger) {
+            findViewById<FlutterView>(FlutterActivity.FLUTTER_VIEW_ID)
+        }
         incomingShareHandler = IncomingShareHandler(this, flutterEngine.dartExecutor.binaryMessenger)
          OAuthHandler.configure(this, flutterEngine.dartExecutor.binaryMessenger)
          kelivo.backgroundRuntime.attachActivity(this)
@@ -125,6 +140,11 @@ class MainActivity : FlutterActivity() {
         }
         fileSaveChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, fileSaveChannelName)
         fileSaveChannel?.setMethodCallHandler { call, result ->
+            // DartMessenger may have queued this handler before it was removed.
+            if (fileSaveChannel == null) {
+                result.error("cancelled", "The file picker was closed.", null)
+                return@setMethodCallHandler
+            }
             when (call.method) {
                 "saveFileFromPath" -> handleSaveFileFromPath(call.arguments, result)
                 "createWritableFile" -> handleCreateWritableFile(call.arguments, result)
@@ -168,17 +188,25 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    override fun onDestroy() {
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        // The shared engine can move to another Activity before this one is
+        // destroyed. Remove these handlers during detach, before its new host
+        // registers replacements on the same messenger.
+        kelivo.messageInput.detachActivity(this)
+        selectionMenu?.dispose()
+        selectionMenu = null
         deviceLocalToolsHandler?.detachActivity(this)
         kelivo.backgroundRuntime.detachActivity(this)
         OAuthHandler.detachActivity(this)
         processTextChannel?.setMethodCallHandler(null)
+        processTextChannel = null
         fileSaveChannel?.setMethodCallHandler(null)
+        fileSaveChannel = null
         deviceStorageChannel?.setMethodCallHandler(null)
-        highRefreshRate.dispose()
-        pendingSaveResult?.error("cancelled", "The file picker was closed.", null)
-        pendingSaveResult = null
-        pendingSaveSourcePath = null
+        deviceStorageChannel = null
+        finishPendingSave(pendingSaveResult) {
+            it.error("cancelled", "The file picker was closed.", null)
+        }
         val stream = pendingWritableStream
         val uri = pendingWritableUri
         if (stream != null && uri != null) {
@@ -191,9 +219,16 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        // Submitted writes and cleanup finish, but this detached host is done.
         writableFileExecutor.shutdown()
         incomingShareHandler?.dispose()
+        incomingShareHandler = null
         workspacePlugin?.detachActivity(this)
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    override fun onDestroy() {
+        highRefreshRate.dispose()
         super.onDestroy()
     }
  
@@ -228,7 +263,7 @@ class MainActivity : FlutterActivity() {
         }
 
         val args = arguments as? Map<*, *>
-        val rawSourcePath = args?.get("sourcePath")?.toString()?.trim().orEmpty()
+        val rawSourcePath = (args?.get("sourcePath") as? String).orEmpty()
         if (rawSourcePath.isEmpty()) {
             result.error("invalid_args", "Missing sourcePath.", null)
             return
@@ -240,7 +275,7 @@ class MainActivity : FlutterActivity() {
             return
         }
 
-        val suggestedFileName = args?.get("fileName")?.toString()?.trim().takeUnless { it.isNullOrEmpty() }
+        val suggestedFileName = (args?.get("fileName") as? String).takeUnless { it.isNullOrEmpty() }
             ?: sourceFile.name
 
         pendingSaveResult = result
@@ -249,14 +284,12 @@ class MainActivity : FlutterActivity() {
         try {
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/zip"
+                type = fileSaveMimeType(suggestedFileName)
                 putExtra(Intent.EXTRA_TITLE, suggestedFileName)
             }
             startActivityForResult(intent, CREATE_DOCUMENT_REQUEST_CODE)
         } catch (e: ActivityNotFoundException) {
-            pendingSaveResult = null
-            pendingSaveSourcePath = null
-            result.error("launch_failed", e.message, null)
+            finishPendingSave(result) { it.error("launch_failed", e.message, null) }
         }
     }
 
@@ -283,9 +316,7 @@ class MainActivity : FlutterActivity() {
             }
             startActivityForResult(intent, CREATE_DOCUMENT_REQUEST_CODE)
         } catch (e: ActivityNotFoundException) {
-            pendingSaveResult = null
-            pendingDirectWrite = false
-            result.error("launch_failed", e.message, null)
+            finishPendingSave(result) { it.error("launch_failed", e.message, null) }
         }
     }
 
@@ -393,13 +424,24 @@ class MainActivity : FlutterActivity() {
         return cleanupError
     }
 
+    // All callers run on the main thread. Clear the matching request before
+    // replying so cancellation, completion and a late worker cannot reply twice.
+    private fun finishPendingSave(
+        expected: MethodChannel.Result?,
+        reply: (MethodChannel.Result) -> Unit,
+    ) {
+        if (expected == null || pendingSaveResult !== expected) return
+        pendingSaveResult = null
+        pendingSaveSourcePath = null
+        pendingDirectWrite = false
+        reply(expected)
+    }
+
     private fun handleSaveDestination(destUri: Uri?) {
         val result = pendingSaveResult ?: return
         if (pendingDirectWrite) {
-            pendingSaveResult = null
-            pendingDirectWrite = false
             if (destUri == null) {
-                result.success(null)
+                finishPendingSave(result) { it.success(null) }
                 return
             }
             try {
@@ -408,7 +450,7 @@ class MainActivity : FlutterActivity() {
                     ?: throw IllegalStateException("Unable to open destination file.")
                 pendingWritableStream = ParcelFileDescriptor.AutoCloseOutputStream(descriptor)
                 writableFileState = WritableFileState.OPEN
-                result.success(true)
+                finishPendingSave(result) { it.success(true) }
             } catch (e: Exception) {
                 try {
                     DocumentsContract.deleteDocument(contentResolver, destUri)
@@ -416,16 +458,14 @@ class MainActivity : FlutterActivity() {
                     // Preserve the error that prevented the destination from opening.
                 }
                 pendingWritableUri = null
-                result.error("open_failed", e.message, null)
+                finishPendingSave(result) { it.error("open_failed", e.message, null) }
             }
             return
         }
         val sourcePath = pendingSaveSourcePath
 
-        if (destUri == null || sourcePath.isNullOrBlank()) {
-            pendingSaveResult = null
-            pendingSaveSourcePath = null
-            result.success(false)
+        if (destUri == null || sourcePath.isNullOrEmpty()) {
+            finishPendingSave(result) { it.success(false) }
             return
         }
 
@@ -438,20 +478,21 @@ class MainActivity : FlutterActivity() {
                 } ?: throw IllegalStateException("Unable to open destination stream.")
 
                 runOnUiThread {
-                    pendingSaveResult = null
-                    pendingSaveSourcePath = null
-                    result.success(true)
+                    finishPendingSave(result) { it.success(true) }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    pendingSaveResult = null
-                    pendingSaveSourcePath = null
-                    result.error("save_failed", e.message, null)
+                    finishPendingSave(result) { it.error("save_failed", e.message, null) }
                 }
             }
         }.start()
     }
 }
+
+internal fun fileSaveMimeType(fileName: String): String =
+    MimeTypeMap.getSingleton()
+        .getMimeTypeFromExtension(File(fileName).extension.lowercase(Locale.ROOT))
+        ?: "application/octet-stream"
 
 /** Cold launches are read by HomePage; a retained HomePage instead needs an
  * event when Android creates its replacement Activity. Consume the extra so

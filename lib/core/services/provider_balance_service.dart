@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import '../providers/settings_provider.dart';
 import 'api/provider_request_headers.dart';
 import 'api_key_manager.dart';
-import 'network/dio_http_client.dart';
+import 'network/provider_http_client.dart';
 
 class ProviderBalanceException implements Exception {
   const ProviderBalanceException(this.message);
@@ -116,14 +116,44 @@ class ProviderBalanceService {
     final apiPath = (config.balanceApiPath ?? '/credits').trim();
     final resultPath = (config.balanceResultPath ?? 'data.total_usage').trim();
     final uri = _balanceUri(config.baseUrl, apiPath);
-    final client = _clientFor(config);
+    final method = config.balanceMethod;
+    if (method != 'GET' && method != 'POST') {
+      throw ProviderBalanceException(
+        'Unsupported balance HTTP method: $method',
+      );
+    }
+    // Custom balance payloads can contain credentials under arbitrary names.
+    final client = providerHttpClient(config, logRequests: false);
     try {
       final apiKey = _effectiveApiKey(config);
-      final headers = <String, String>{
+      final request = http.Request(method, uri);
+      final hasBody = method == 'POST' && config.balanceBody.trim().isNotEmpty;
+      request.headers.addAll({
         if (apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey',
         ...providerDefaultHeaders(config),
-      };
-      final response = await client.get(uri, headers: headers);
+        if (hasBody) 'Content-Type': 'application/json',
+      });
+      for (final header in config.balanceHeaders) {
+        final name = (header['name'] ?? '').trim();
+        if (name.isEmpty) continue;
+        final value = (header['value'] ?? '')
+            .replaceAll('{{apiKey}}', apiKey)
+            .trim();
+        // http.Request headers are case insensitive, including removals.
+        if (value.isEmpty) {
+          request.headers.remove(name);
+        } else {
+          request.headers[name] = value;
+        }
+      }
+      if (hasBody) {
+        request.bodyBytes = utf8.encode(
+          config.balanceBody.replaceAll('{{apiKey}}', apiKey),
+        );
+      }
+      final response = await http.Response.fromStream(
+        await client.send(request),
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ProviderBalanceException(
           'HTTP ${response.statusCode}: ${response.body}',
@@ -156,28 +186,6 @@ class ProviderBalanceService {
         : baseUrl;
     final path = apiPath.startsWith('/') ? apiPath : '/$apiPath';
     return Uri.parse('$base$path');
-  }
-
-  static http.Client _clientFor(ProviderConfig config) {
-    final enabled = config.proxyEnabled == true;
-    final host = (config.proxyHost ?? '').trim();
-    final portStr = (config.proxyPort ?? '').trim();
-    final user = (config.proxyUsername ?? '').trim();
-    final pass = (config.proxyPassword ?? '').trim();
-    if (enabled && host.isNotEmpty && portStr.isNotEmpty) {
-      final port = int.tryParse(portStr) ?? 8080;
-      return DioHttpClient(
-        proxy: NetworkProxyConfig(
-          enabled: true,
-          type: ProviderConfig.resolveProxyType(config.proxyType),
-          host: host,
-          port: port,
-          username: user.isEmpty ? null : user,
-          password: pass.isEmpty ? null : pass,
-        ),
-      );
-    }
-    return DioHttpClient();
   }
 
   static String _effectiveApiKey(ProviderConfig config) {

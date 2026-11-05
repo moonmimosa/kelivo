@@ -6,6 +6,28 @@ import '../../utils/sandbox_path_resolver.dart';
 
 const String multimodalInternalMediaPathsKey = '_kelivo_media_paths';
 const String multimodalInternalRevisionIdKey = '_kelivo_revision_id';
+const String multimodalInternalImageReferencesKey = '_kelivo_image_references';
+Map<String, String> internalImageReferences(Map<String, dynamic> message) {
+  final value = message[multimodalInternalImageReferencesKey];
+  return value is Map
+      ? {
+          for (final entry in value.entries)
+            if (entry.key is String && entry.value is String)
+              entry.key as String: entry.value as String,
+        }
+      : const {};
+}
+
+/// A separately persisted plain-text part that must bypass Markdown media
+/// extraction. Set from structured message parts, never inferred from markers
+/// inside ordinary content. Providers consume this metadata before the wire.
+const String multimodalInternalLiteralTextKey = '_kelivo_literal_text';
+String? internalLiteralText(Map<String, dynamic> message) {
+  final value = message[multimodalInternalLiteralTextKey];
+  return value is String && value.isNotEmpty && value.length <= 4096
+      ? value
+      : null;
+}
 
 /// Internal message key listing a user message's document attachments as
 /// `{uri, name, mime}` entries — the `FilePart`s that are not images, audio
@@ -76,6 +98,9 @@ List<InternalDocumentRef> parseInternalDocumentRefs(dynamic raw) {
 /// anything reaches the wire.
 const String multimodalInternalClaudeContainerKey = '_kelivo_claude_container';
 const String multimodalInternalClaudeTurnKey = '_kelivo_claude_turn';
+const String multimodalInternalClaudeThinkingRecoveryKey =
+    '_kelivo_claude_thinking_recovery';
+const String multimodalInternalResponsesItemKey = '_kelivo_responses_item';
 const String multimodalInternalGeminiThoughtSignatureKey =
     '_kelivo_gemini_thought_signature';
 
@@ -85,14 +110,21 @@ bool isAudioMime(String mime) => mime.toLowerCase().startsWith('audio/');
 
 bool isVideoMime(String mime) => mime.toLowerCase().startsWith('video/');
 
+bool isPdfMime(String mime) =>
+    mime.toLowerCase().split(';').first.trim() == 'application/pdf';
+
 String inferMediaMimeFromSource(String source, {String fallbackMime = ''}) {
-  final lower = source.toLowerCase();
+  var lower = source.toLowerCase();
   if (lower.startsWith('data:')) {
     final start = lower.indexOf(':');
     final semi = lower.indexOf(';');
     if (start >= 0 && semi > start) {
       return lower.substring(start + 1, semi);
     }
+  }
+  // Signed download URLs still retain their file extension in the path.
+  if (lower.startsWith('http://') || lower.startsWith('https://')) {
+    lower = Uri.tryParse(lower)?.path ?? lower;
   }
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
     return 'image/jpeg';
@@ -103,6 +135,12 @@ String inferMediaMimeFromSource(String source, {String fallbackMime = ''}) {
   if (lower.endsWith('.bmp')) return 'image/bmp';
   if (lower.endsWith('.wav')) return 'audio/wav';
   if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (lower.endsWith('.m4a')) return 'audio/mp4';
+  if (lower.endsWith('.aac')) return 'audio/aac';
+  if (lower.endsWith('.flac')) return 'audio/flac';
+  if (lower.endsWith('.ogg') || lower.endsWith('.oga')) return 'audio/ogg';
+  if (lower.endsWith('.opus')) return 'audio/opus';
+  if (lower.endsWith('.aiff') || lower.endsWith('.aif')) return 'audio/aiff';
   if (lower.endsWith('.pcm16')) return 'audio/pcm16';
   if (lower.endsWith('.pcm')) return 'audio/pcm';
   if (lower.endsWith('.mp4')) return 'video/mp4';
@@ -114,6 +152,7 @@ String inferMediaMimeFromSource(String source, {String fallbackMime = ''}) {
   if (lower.endsWith('.wmv')) return 'video/x-ms-wmv';
   if (lower.endsWith('.webm')) return 'video/webm';
   if (lower.endsWith('.3gp') || lower.endsWith('.3gpp')) return 'video/3gpp';
+  if (lower.endsWith('.pdf')) return 'application/pdf';
   return fallbackMime;
 }
 

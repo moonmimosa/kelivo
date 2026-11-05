@@ -1,3 +1,6 @@
+import '../../home/widgets/model_icon.dart';
+import '../../../desktop/widgets/desktop_adaptive_panes.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File;
@@ -9,11 +12,12 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+
 import '../../../core/services/chat/prompt_transformer.dart';
 import '../../../core/services/memory/memory_prompts.dart';
+
 import 'package:provider/provider.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
 import 'package:syncfusion_flutter_sliders/sliders.dart';
@@ -22,9 +26,10 @@ import 'package:uuid/uuid.dart';
 import '../../chat/widgets/chat_message_widget.dart';
 import '../../chat/widgets/chat_gradient_background.dart';
 import '../../home/widgets/assistant_avatar.dart';
-import '../../chat/widgets/reasoning_budget_sheet.dart';
 import '../../model/widgets/model_select_sheet.dart';
 import '../../../core/models/assistant.dart';
+import '../widgets/assistant_reasoning_picker.dart';
+import '../../chat/widgets/reasoning_level_sheet.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/preset_message.dart';
@@ -41,6 +46,7 @@ import '../../../core/services/memory/memory_gatekeeper.dart';
 import '../../../core/services/memory/memory_pipeline.dart';
 import '../../settings/pages/memory_settings_page.dart';
 import '../../settings/widgets/memory_ui.dart';
+import '../../../shared/widgets/tip_icon.dart';
 import '../../../core/services/haptics.dart';
 import '../../../desktop/desktop_context_menu.dart';
 import '../../../desktop/setting/memory_dialogs.dart';
@@ -59,7 +65,6 @@ import '../../../shared/widgets/snackbar.dart';
 import '../../../theme/app_font_weights.dart';
 import '../../../theme/design_tokens.dart';
 import '../../../utils/avatar_cache.dart';
-import '../../../utils/brand_assets.dart';
 import '../../../utils/platform_utils.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../utils/assistant_edit_tab_layout.dart';
@@ -68,8 +73,10 @@ import 'assistant_settings_edit_skills_tab.dart';
 import '../widgets/assistant_default_workspace_row.dart';
 import 'health_data_settings_page.dart';
 import '../../settings/pages/phone_control_settings_page.dart';
+
 import 'package:Kelivo/theme/app_semantic_colors.dart';
 import 'package:Kelivo/shared/widgets/section_card.dart';
+
 import '../../../core/services/nianlun/nianlun_client.dart';
 
 part 'assistant_settings_edit_basic_tab.dart';
@@ -167,9 +174,10 @@ List<_AssistantEditTabSpec> _orderedAssistantEditTabs(
   List<String> order,
 ) {
   final byId = {for (final tab in tabs) tab.id: tab};
-  return orderAssistantEditTabIds(
-    savedOrder: order,
-  ).map((id) => byId[id]).nonNulls.toList();
+  return orderAssistantEditTabIds(savedOrder: order)
+      .map((id) => byId[id])
+      .nonNulls
+      .toList();
 }
 
 List<_AssistantEditTabSpec> _visibleAssistantEditTabs(
@@ -769,9 +777,8 @@ class _AssistantOutlineModeSwitch extends StatelessWidget {
           child: Text(
             l10n.assistantEditOutlineModeSubtitle,
             style: TextStyle(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.56),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.56),
               fontSize: 12.5,
               height: 1.35,
             ),
@@ -1142,76 +1149,6 @@ class _InputRow extends StatelessWidget {
   }
 }
 
-class _BrandAvatarLike extends StatelessWidget {
-  const _BrandAvatarLike({required this.name, this.size = 20});
-  final String name;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Map known names to brand assets used in default_model_page
-    final asset = BrandAssets.assetForName(name);
-    if (asset != null) {
-      if (asset.endsWith('.svg')) {
-        final ColorFilter? tint =
-            (isDark && BrandAssets.assetNeedsDarkInvert(asset))
-            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
-            : null;
-        return Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.1),
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: SvgPicture.asset(
-            asset,
-            width: size * 0.62,
-            height: size * 0.62,
-            colorFilter: tint,
-          ),
-        );
-      } else {
-        return Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.1),
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: Image.asset(
-            asset,
-            width: size * 0.62,
-            height: size * 0.62,
-            fit: BoxFit.contain,
-          ),
-        );
-      }
-    }
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.1),
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        name.isNotEmpty ? name.characters.first.toUpperCase() : '?',
-        style: TextStyle(
-          color: cs.primary,
-          fontWeight: AppFontWeights.emphasis,
-          fontSize: size * 0.42,
-        ),
-      ),
-    );
-  }
-}
-
 // --- iOS-style helpers ---
 
 class _TactileIconButton extends StatefulWidget {
@@ -1430,7 +1367,7 @@ Widget _iosNavRow(
             },
           ),
         ),
-        if (tip != null) MemoryTipIcon(message: tip),
+        if (tip != null) TipIcon(message: tip),
         GestureDetector(
           onTap: onTap,
           behavior: HitTestBehavior.opaque,
@@ -1527,7 +1464,7 @@ Widget _iosSwitchRow(
             },
           ),
         ),
-        if (tip != null) MemoryTipIcon(message: tip),
+        if (tip != null) TipIcon(message: tip),
         IosSwitch(value: value, onChanged: onChanged, semanticLabel: label),
       ],
     ),
@@ -1613,12 +1550,15 @@ class _IosButtonState extends State<_IosButton> {
                 ),
                 const SizedBox(width: 8),
               ],
-              Text(
-                widget.label,
-                style: TextStyle(
-                  color: textColor,
-                  fontWeight: AppFontWeights.semibold,
-                  fontSize: widget.dense ? 13 : 14,
+              Flexible(
+                child: Text(
+                  widget.label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: AppFontWeights.semibold,
+                    fontSize: widget.dense ? 13 : 14,
+                  ),
                 ),
               ),
             ],
@@ -1692,6 +1632,7 @@ class _DesktopAssistantDialogShell extends StatefulWidget {
 class _DesktopAssistantDialogShellState
     extends State<_DesktopAssistantDialogShell> {
   _AssistantDesktopMenu _menu = _AssistantDesktopMenu.basic;
+  bool _showDetail = true;
 
   @override
   Widget build(BuildContext context) {
@@ -1735,56 +1676,51 @@ class _DesktopAssistantDialogShellState
           color: cs.outlineVariant.withValues(alpha: 0.12),
         ),
         Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _DesktopAssistantMenu(
-                selected: _menu,
-                onSelect: (m) => setState(() => _menu = m),
-              ),
-              VerticalDivider(
-                width: 1,
-                thickness: 0.5,
-                color: cs.outlineVariant.withValues(alpha: 0.12),
-              ),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  switchInCurve: Curves.easeOutCubic,
-                  child: () {
-                    switch (_menu) {
-                      case _AssistantDesktopMenu.basic:
-                        return _DesktopAssistantBasicPane(
-                          assistantId: widget.assistantId,
-                          key: const ValueKey('basic'),
-                        );
-                      case _AssistantDesktopMenu.prompts:
-                        return _PromptTab(assistantId: widget.assistantId);
-                      case _AssistantDesktopMenu.memory:
-                        return _MemoryTab(assistantId: widget.assistantId);
-                      case _AssistantDesktopMenu.localTools:
-                        return _LocalToolsTab(assistantId: widget.assistantId);
-                      case _AssistantDesktopMenu.skills:
-                        return AssistantSettingsEditSkillsTab(
-                          assistantId: widget.assistantId,
-                        );
-                      case _AssistantDesktopMenu.mcp:
-                        return _McpTab(assistantId: widget.assistantId);
-                      case _AssistantDesktopMenu.quick:
-                        return _QuickPhraseTab(assistantId: widget.assistantId);
-                      case _AssistantDesktopMenu.custom:
-                        return _CustomRequestTab(
-                          assistantId: widget.assistantId,
-                        );
-                      case _AssistantDesktopMenu.regex:
-                        return AssistantRegexDesktopPane(
-                          assistantId: widget.assistantId,
-                        );
-                    }
-                  }(),
-                ),
-              ),
-            ],
+          child: DesktopAdaptivePanes(
+            sidebarWidth: 220,
+            showDetail: _showDetail,
+            onBack: () => setState(() => _showDetail = false),
+            backLabel: AppLocalizations.of(context)!.assistantEditPageTitle,
+            sidebar: _DesktopAssistantMenu(
+              selected: _menu,
+              onSelect: (m) => setState(() {
+                _menu = m;
+                _showDetail = true;
+              }),
+            ),
+            detail: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              switchInCurve: Curves.easeOutCubic,
+              child: () {
+                switch (_menu) {
+                  case _AssistantDesktopMenu.basic:
+                    return _DesktopAssistantBasicPane(
+                      assistantId: widget.assistantId,
+                      key: const ValueKey('basic'),
+                    );
+                  case _AssistantDesktopMenu.prompts:
+                    return _PromptTab(assistantId: widget.assistantId);
+                  case _AssistantDesktopMenu.memory:
+                    return _MemoryTab(assistantId: widget.assistantId);
+                  case _AssistantDesktopMenu.localTools:
+                    return _LocalToolsTab(assistantId: widget.assistantId);
+                  case _AssistantDesktopMenu.skills:
+                    return AssistantSettingsEditSkillsTab(
+                      assistantId: widget.assistantId,
+                    );
+                  case _AssistantDesktopMenu.mcp:
+                    return _McpTab(assistantId: widget.assistantId);
+                  case _AssistantDesktopMenu.quick:
+                    return _QuickPhraseTab(assistantId: widget.assistantId);
+                  case _AssistantDesktopMenu.custom:
+                    return _CustomRequestTab(assistantId: widget.assistantId);
+                  case _AssistantDesktopMenu.regex:
+                    return AssistantRegexDesktopPane(
+                      assistantId: widget.assistantId,
+                    );
+                }
+              }(),
+            ),
           ),
         ),
       ],
@@ -2081,9 +2017,8 @@ class _DesktopAssistantBasicPaneState
                 borderRadius: BorderRadius.circular(8),
               ),
               // Use themed text to respect user-selected fonts
-              textStyle: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: cs.onSurface),
+              textStyle: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: cs.onSurface),
               waitDuration: const Duration(milliseconds: 300),
               child: Icon(
                 Icons.help_outline,
@@ -2285,15 +2220,13 @@ class _DesktopAssistantBasicPaneState
                     child: Opacity(
                       opacity: a.limitContextMessages ? 1.0 : 0.5,
                       child: _SliderTileNew(
-                        value: _clampContextMessages(
-                          a.contextMessageSize,
-                        ).toDouble(),
+                        value: _clampContextMessages(a.contextMessageSize)
+                            .toDouble(),
                         min: _contextMessageMin.toDouble(),
                         max: _contextMessageMax.toDouble(),
                         divisions: _contextMessageMax - _contextMessageMin,
-                        label: _clampContextMessages(
-                          a.contextMessageSize,
-                        ).toString(),
+                        label: _clampContextMessages(a.contextMessageSize)
+                            .toString(),
                         customLabelStops: const <double>[
                           1.0,
                           64.0,
@@ -2546,13 +2479,19 @@ class _DesktopAssistantBasicPaneState
                           ),
                           child: Row(
                             children: [
-                              _BrandAvatarLike(name: display, size: 24),
+                              CurrentModelIcon(
+                                providerKey:
+                                    a.chatModelProvider ??
+                                    settings.currentModelProvider,
+                                modelId:
+                                    a.chatModelId ?? settings.currentModelId,
+                                size: 24,
+                                iconScale: .62,
+                              ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   display,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: AppFontWeights.semibold,

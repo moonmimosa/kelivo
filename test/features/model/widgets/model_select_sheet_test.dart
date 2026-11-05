@@ -1,6 +1,7 @@
 import "../../../support/business_test_harness.dart";
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -8,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:Kelivo/core/providers/assistant_provider.dart';
 import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/models/provider_oauth.dart';
 import 'package:Kelivo/features/model/widgets/model_select_sheet.dart';
 import 'package:Kelivo/icons/lucide_adapter.dart';
 import 'package:Kelivo/l10n/app_localizations.dart';
@@ -183,6 +185,119 @@ Future<void> _dismissModelSelector(WidgetTester tester) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.macOS]) {
+    testWidgets(
+      'model picker uses custom icons for logical aliases on $platform',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        try {
+          tester.view.physicalSize = platform == TargetPlatform.iOS
+              ? const Size(390, 844)
+              : const Size(1100, 900);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final settings = await _settingsWithOnlyTestProviders(tester);
+          addTearDown(settings.dispose);
+          await settings.setProviderConfig(
+            'provider-0',
+            _providerConfig('provider-0', 'Provider', ['alias']).copyWith(
+              modelOverrides: {
+                'alias': {
+                  'apiModelId': 'gpt-4o',
+                  'name': 'Custom model',
+                  'avatar': {'type': 'emoji', 'value': '🌟'},
+                },
+              },
+            ),
+          );
+          await _pumpModelSelector(
+            tester,
+            settings: settings,
+            limitProviderKey: 'provider-0',
+          );
+          expect(find.text('Custom model'), findsOneWidget);
+          expect(find.text('🌟'), findsOneWidget);
+          Navigator.of(tester.element(find.text('Custom model'))).pop();
+          await tester.pumpAndSettle();
+          await tester.pumpWidget(const SizedBox());
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+  }
+
+  for (final (platform, limited) in [
+    for (final platform in [TargetPlatform.iOS, TargetPlatform.macOS])
+      for (final limited in [false, true]) (platform, limited),
+  ]) {
+    testWidgets(
+      'model picker excludes disabled models and pinned entries on $platform limited=$limited',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        tester.view.physicalSize = platform == TargetPlatform.iOS
+            ? const Size(390, 844)
+            : const Size(1100, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        try {
+          final settings = await _settingsWithOnlyTestProviders(tester);
+          addTearDown(settings.dispose);
+          for (final key in settings.providerConfigs.keys) {
+            await settings.removeProviderConfig(key);
+          }
+          await settings.setProviderConfig(
+            'oauth',
+            ProviderConfig(
+              id: 'oauth',
+              enabled: true,
+              name: 'OAuth account',
+              apiKey: '',
+              baseUrl: OAuthProvider.chatgpt.baseUrl,
+              oauthProvider: OAuthProvider.chatgpt,
+              models: ['enabled-model', 'disabled-model'],
+              disabledModels: {'disabled-model'},
+            ),
+          );
+          // Old/imported favorites must not bypass the disabled-model filter.
+          await settings.togglePinModel('oauth', 'disabled-model');
+          await settings.setCurrentModel('oauth', 'enabled-model');
+          await _pumpModelSelector(
+            tester,
+            settings: settings,
+            limitProviderKey: limited ? 'oauth' : null,
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('enabled-model'), findsOneWidget);
+          expect(
+            find.textContaining('disabled-model', findRichText: true),
+            findsNothing,
+          );
+          Navigator.of(tester.element(find.text('enabled-model'))).pop();
+          await tester.pumpAndSettle();
+          await settings.setModelEnabled('oauth', 'enabled-model', false);
+          await _pumpModelSelector(
+            tester,
+            settings: settings,
+            limitProviderKey: limited ? 'oauth' : null,
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('enabled-model'), findsNothing);
+          expect(
+            find.textContaining('disabled-model', findRichText: true),
+            findsNothing,
+          );
+          tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+          await tester.pumpAndSettle();
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+  }
 
   testWidgets(
     'mobile model selector uses explicit initial model over global current model',
@@ -381,6 +496,72 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 20)),
   );
+
+  for (final limited in [false, true]) {
+    testWidgets('mobile model selector fully reveals a wrapped last selection '
+        '(limited=$limited)', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      try {
+        final settings = await _settingsWithLongSingleProvider(tester);
+        addTearDown(settings.dispose);
+        for (final key in settings.providerConfigs.keys.toList()) {
+          if (key != 'provider-long') {
+            await settings.removeProviderConfig(key);
+          }
+        }
+        const modelId = 'provider-long-model-19';
+        const name =
+            'openrouter/vendor-organization/long-context-multimodal-reasoning-'
+            'extended-thinking-instruct-preview-128k-2026-11-04-experimental-'
+            'with-tools-and-structured-output';
+        final config = settings.getProviderConfig('provider-long');
+        await settings.setProviderConfig(
+          'provider-long',
+          config.copyWith(
+            modelOverrides: const {
+              modelId: {'name': name},
+            },
+          ),
+        );
+        await _pumpModelSelector(
+          tester,
+          settings: settings,
+          limitProviderKey: limited ? 'provider-long' : null,
+        );
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+        final nameFinder = find.text(name);
+        expect(nameFinder, findsOneWidget);
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: nameFinder, matching: find.byType(RichText)),
+        );
+        expect(paragraph.didExceedMaxLines, isFalse);
+        final listRect = tester.getRect(find.byType(ScrollablePositionedList));
+        final tileRect = tester.getRect(
+          find.ancestor(of: nameFinder, matching: find.byType(IosCardPress)),
+        );
+        final visibleTop = limited
+            ? listRect.top
+            : tester
+                  .getRect(
+                    find.byKey(
+                      const ValueKey('model-selector-sticky-provider'),
+                    ),
+                  )
+                  .bottom;
+        expect(tileRect.top, greaterThanOrEqualTo(visibleTop));
+        expect(tileRect.bottom, lessThanOrEqualTo(listRect.bottom));
+        expect(tester.takeException(), isNull);
+      } finally {
+        await _dismissModelSelector(tester);
+        debugDefaultTargetPlatformOverride = null;
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      }
+    }, timeout: const Timeout(Duration(seconds: 20)));
+  }
 
   testWidgets(
     'mobile model selector keeps reachable current model near the top',
@@ -612,4 +793,84 @@ void main() {
       timeout: const Timeout(Duration(seconds: 20)),
     );
   }
+
+  testWidgets('desktop model selector pins hearts to a shared right edge', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    try {
+      SharedPreferences.setMockInitialValues({});
+      final settings = SettingsProvider(createBusinessTestPreferences());
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      await settings.setProviderConfig(
+        'capsule',
+        ProviderConfig(
+          id: 'capsule',
+          enabled: true,
+          name: 'Capsule',
+          apiKey: '',
+          baseUrl: '',
+          providerType: ProviderKind.openai,
+          models: const ['wide-ctx', 'narrow-ctx'],
+          modelOverrides: const {
+            'wide-ctx': {
+              'name': 'Wide Context',
+              'type': 'chat',
+              'input': ['text', 'image'],
+              'abilities': ['tool'],
+              'contextWindow': 1000000,
+            },
+            'narrow-ctx': {
+              'name': 'Narrow Context',
+              'type': 'chat',
+              'input': ['text', 'image'],
+              'abilities': ['tool'],
+              'contextWindow': 262144,
+            },
+          },
+        ),
+      );
+      await settings.setProvidersOrder(const ['capsule']);
+      await settings.setCurrentModel('capsule', 'wide-ctx');
+
+      await _pumpModelSelector(
+        tester,
+        settings: settings,
+        limitProviderKey: 'capsule',
+      );
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+      expect(find.text('1M'), findsOneWidget);
+      expect(find.text('262.1k'), findsOneWidget);
+
+      final wideHeart = tester.getRect(
+        find.byKey(const ValueKey('desktop-model-favorite-capsule::wide-ctx')),
+      );
+      final narrowHeart = tester.getRect(
+        find.byKey(
+          const ValueKey('desktop-model-favorite-capsule::narrow-ctx'),
+        ),
+      );
+      expect(wideHeart.right, closeTo(narrowHeart.right, 0.5));
+      expect(wideHeart.width, closeTo(narrowHeart.width, 0.5));
+    } finally {
+      final dialog = find.byType(Dialog);
+      final general = find.byType(Material);
+      if (dialog.evaluate().isNotEmpty) {
+        Navigator.of(tester.element(dialog)).pop();
+      } else if (general.evaluate().isNotEmpty) {
+        final nav = Navigator.maybeOf(
+          tester.element(find.byKey(const ValueKey('open-model-selector'))),
+        );
+        nav?.pop();
+      }
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      debugDefaultTargetPlatformOverride = null;
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    }
+  }, timeout: const Timeout(Duration(seconds: 20)));
 }

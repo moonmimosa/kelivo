@@ -1,9 +1,21 @@
+import 'package:Kelivo/desktop/desktop_overlay_backdrop.dart';
+import '../utils/message_reasoning_source.dart';
+import '../../intelligent_ui/host/ui_copy_actions.dart';
+import '../../intelligent_ui/host/ui_user_message_content.dart';
+import 'package:Kelivo/features/intelligent_ui/host/ui_runtime_registry.dart';
+import 'package:Kelivo/features/intelligent_ui/host/ui_source_map.dart';
+import 'package:Kelivo/features/intelligent_ui/host/ui_host_scope.dart';
+import 'package:Kelivo/features/intelligent_ui/host/ui_generation_state.dart';
+import 'package:markstream/markstream_core.dart' show SourceSpan;
+import 'package:markstream/markstream.dart' show SelectableSpanAdapter;
+import 'tool_permission_widgets.dart';
 import '../../provider/widgets/oauth_message_recovery.dart';
 import 'dart:async';
+import 'dart:collection';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, TargetPlatform, visibleForTesting;
-import 'dart:ui' as ui;
+    show defaultTargetPlatform, TargetPlatform, visibleForTesting, mapEquals;
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import '../../../core/services/haptics.dart';
@@ -15,6 +27,12 @@ import 'package:open_filex/open_filex.dart';
 import 'dart:convert';
 import '../../home/widgets/file_processing_indicator.dart';
 import '../pages/image_viewer_page.dart';
+import '../../browser/browser_navigation.dart';
+import '../../browser/widgets/browser_page_card.dart';
+import '../../browser/widgets/browser_favicon.dart';
+import '../../../core/services/browser/browser_service.dart';
+import '../../browser/models/browser_tool_presentation.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/message_part.dart';
 import '../../../icons/lucide_adapter.dart';
@@ -27,17 +45,27 @@ import 'package:intl/intl.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../../../utils/safe_resize_image.dart';
 import '../../../utils/utf16_safe_cut.dart';
-import '../../../utils/avatar_cache.dart';
+import '../../../shared/widgets/avatar_image.dart';
+import '../../../utils/unicode_sanitizer.dart';
 import '../../../utils/assistant_regex.dart';
+import '../../../utils/protected_text.dart';
+import '../../../utils/source_text_map.dart';
 import '../../../core/models/assistant.dart';
 import '../../../core/providers/tts_provider.dart';
-import '../../../shared/widgets/markdown_with_highlight.dart';
+import '../../../shared/markdown/markdown_with_code_highlight.dart';
+import '../../../shared/markdown/quote_syntax.dart';
+import '../controllers/quote_editing_controller.dart' show buildQuoteTextSpan;
+import 'quote_chip.dart';
+import 'quote_source_highlight.dart';
+import 'package:Kelivo/shared/widgets/app_selection_area.dart';
 import '../../../shared/widgets/snackbar.dart';
+import '../../../shared/widgets/audio_clip_player.dart';
+import '../../../core/utils/multimodal_input_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/providers/settings_provider.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
-import '../../../core/providers/model_provider.dart';
+import '../../../core/services/model_spec/model_spec_resolver.dart';
 import '../../../core/models/assistant_regex.dart';
 import '../../../shared/widgets/custom_bottom_sheet.dart';
 import '../../../shared/widgets/ios_checkbox.dart';
@@ -53,6 +81,10 @@ import '../../home/services/tool_approval_service.dart';
 import '../utils/assistant_paragraph_splitter.dart';
 import '../utils/thinking_tag_parser.dart';
 import 'timeline_projection.dart';
+import 'incremental_timeline_projection.dart';
+import 'viewport_block_list.dart';
+import '../../../core/models/message_part_snapshot.dart';
+import 'select_copy_sheet.dart';
 import 'timeline_visibility.dart';
 import 'citation_sources_sheet.dart';
 import 'chat_surface.dart';
@@ -106,9 +138,13 @@ Uri? _tryNormalizeExternalUri(String raw) {
 }) => parseToolResultImages(content, metadata: metadata);
 
 @visibleForTesting
-const double kToolImageTimelineHeight = 120;
+const double kToolImageTimelineHeight = timelineToolImageHeight;
 @visibleForTesting
 const double kToolImageTimelineMaxWidth = 240;
+const double kBrowserStepImageHeight = 64;
+const double kBrowserStepImageMaxWidth = 120;
+const int _browserStepsFoldThreshold = 6;
+const int _browserStepsTail = 5;
 @visibleForTesting
 const double kToolImageCardHeight = 180;
 @visibleForTesting
@@ -448,6 +484,8 @@ IconData _toolIconFor(String name, [Map<String, dynamic> args = const {}]) {
       return Lucide.Search;
     case 'search_web':
       return Lucide.Earth;
+    case 'fetch_url':
+      return Lucide.Link;
     case 'builtin_search':
       return Lucide.Search;
     // Provider built-in server tools. These are the names the decoders emit,
@@ -483,6 +521,7 @@ IconData? _localToolIconFor(String name, Map<String, dynamic> args) {
     LocalToolNames.calendarCreate => Lucide.CalendarPlus,
     LocalToolNames.currentLocation => Lucide.MapPin,
     LocalToolNames.phoneControl => Lucide.Smartphone,
+    LocalToolNames.browser => LucideIcons.appWindow,
     LocalToolNames.weather => Lucide.CloudSun,
     LocalToolNames.healthSummary => Lucide.HeartPulse,
     LocalToolNames.remindersQuery => Lucide.ListTodo,
@@ -516,6 +555,10 @@ String? _localToolTitleFor(
       l10n.assistantEditLocalToolCalendarCreateTitle,
     LocalToolNames.currentLocation => l10n.assistantEditLocalToolLocationTitle,
     LocalToolNames.phoneControl => l10n.phoneControlTitle,
+    LocalToolNames.browser => browserActionLabel(
+      l10n,
+      args['action']?.toString() ?? '',
+    ),
     LocalToolNames.weather => l10n.assistantEditLocalToolWeatherTitle,
     LocalToolNames.healthSummary => l10n.assistantEditLocalToolHealthTitle,
     LocalToolNames.remindersQuery =>
@@ -576,7 +619,7 @@ Widget _buildTextToSpeechReplayRow(
     children: [
       Expanded(
         child: Text(
-          text,
+          UnicodeSanitizer.sanitize(text),
           maxLines: maxLines,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(fontSize: fontSize, height: 1.4, color: textColor),
@@ -615,10 +658,10 @@ String _toolTitleFor(
 }) {
   final l10n = AppLocalizations.of(context)!;
   if (name == LocalToolNames.askUser) {
-    return _askUserToolTitleFor(l10n, args);
+    return UnicodeSanitizer.sanitize(_askUserToolTitleFor(l10n, args));
   }
   final localToolTitle = _localToolTitleFor(l10n, name, args);
-  if (localToolTitle != null) return localToolTitle;
+  if (localToolTitle != null) return UnicodeSanitizer.sanitize(localToolTitle);
   if (isWorkspaceToolName(name)) {
     return workspaceToolTitle(l10n, name);
   }
@@ -642,14 +685,20 @@ String _toolTitleFor(
     case 'create_memory':
       return l10n.chatMessageWidgetCreateMemory;
     case 'search_web':
-      final q = (args['query'] ?? '').toString();
+      final q = UnicodeSanitizer.sanitize((args['query'] ?? '').toString());
       return l10n.chatMessageWidgetWebSearch(q);
     case 'builtin_search':
       return l10n.chatMessageWidgetBuiltinSearch;
+    case 'fetch_url':
+      final url = UnicodeSanitizer.sanitize(
+        (args['url'] ?? '').toString().trim(),
+      );
+      final host = Uri.tryParse(url)?.host ?? '';
+      return l10n.chatMessageWidgetWebFetch(host.isEmpty ? url : host);
     default:
       return isResult
-          ? l10n.chatMessageWidgetToolResult(name)
-          : l10n.chatMessageWidgetToolCall(name);
+          ? l10n.chatMessageWidgetToolResult(UnicodeSanitizer.sanitize(name))
+          : l10n.chatMessageWidgetToolCall(UnicodeSanitizer.sanitize(name));
   }
 }
 
@@ -706,7 +755,184 @@ void _showToolFullImage(BuildContext context, String path) {
   );
 }
 
-void _showToolDetail(BuildContext context, ToolUIPart part) {
+void _showBrowserStepDetail(
+  BuildContext context,
+  ToolUIPart part, {
+  required String conversationId,
+}) {
+  final action = BrowserToolAction(
+    id: part.id,
+    arguments: part.arguments,
+    content: part.content,
+    metadata: part.metadata,
+    loading: part.loading,
+  );
+  // The detail route may outlive the source row as streaming/collapse or
+  // list virtualization removes it. Navigate through the route's stable host.
+  final navigator = Navigator.of(context, rootNavigator: true);
+  _showToolDetail(
+    context,
+    part,
+    header: _BrowserStepDetailHeader(
+      action: action,
+      onOpen: () {
+        if (!navigator.mounted) return;
+        unawaited(
+          openBrowserPage(
+            navigator.context,
+            conversationId: conversationId,
+            tabId: action.tabId,
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class _BrowserStepDetailHeader extends StatelessWidget {
+  const _BrowserStepDetailHeader({required this.action, required this.onOpen});
+  final BrowserToolAction action;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final l = AppLocalizations.of(context)!;
+    // List/close-tab results also carry a page object, but no page identity.
+    final hasPage =
+        action.page['url'] is String || action.page['title'] is String;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (action.failed)
+          Container(
+            key: const ValueKey('browser-step-detail-error'),
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            decoration: BoxDecoration(
+              color: cs.error.withValues(
+                alpha: theme.brightness == Brightness.dark ? .10 : .07,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(LucideIcons.circleAlert, size: 16, color: cs.error),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        browserErrorSummary(l, action.error),
+                        style: TextStyle(fontSize: 12.5, color: cs.error),
+                      ),
+                      if (action.error.isNotEmpty)
+                        Text(
+                          action.error,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: cs.error.withValues(alpha: .75),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (hasPage) ...[
+          if (action.failed) const SizedBox(height: 8),
+          Container(
+            key: const ValueKey('browser-step-detail-page'),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: context.appColors.surfaceFill,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: cs.outlineVariant.withValues(alpha: .2),
+              ),
+            ),
+            child: Row(
+              children: [
+                BrowserFavicon(url: action.url, size: 16),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        action.title.isNotEmpty
+                            ? action.title
+                            : action.url == 'about:blank'
+                            ? l.browserCardBlankPage
+                            : browserUrlLabel(action.url),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: AppFontWeights.semibold,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      Text(
+                        action.url,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: cs.onSurface.withValues(alpha: .6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  fit: FlexFit.tight,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: ListenableBuilder(
+                      listenable: BrowserService.instance,
+                      builder: (context, _) {
+                        final exists = BrowserService.instance.tabs.any(
+                          (tab) => tab.id == action.tabId,
+                        );
+                        return TextButton.icon(
+                          key: const ValueKey('browser-step-detail-open'),
+                          icon: const Icon(Lucide.AppWindow, size: 15),
+                          label: Text(
+                            exists
+                                ? l.browserOpenThisPage
+                                : l.browserErrTabClosed,
+                          ),
+                          onPressed: !exists
+                              ? null
+                              : () async {
+                                  final closed = await Navigator.of(
+                                    context,
+                                  ).maybePop();
+                                  if (closed) onOpen();
+                                },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+void _showToolDetail(BuildContext context, ToolUIPart part, {Widget? header}) {
   final l10n = AppLocalizations.of(context)!;
   final argsPretty = const JsonEncoder.withIndent('  ').convert(part.arguments);
   final (cleanText, images) = parseToolResultImages(
@@ -750,6 +976,7 @@ void _showToolDetail(BuildContext context, ToolUIPart part) {
           imagesLabel: l10n.chatMessageWidgetImages,
           screenTimeResult: useScreenTimeDetail ? screenTime : null,
           weatherAttribution: weatherAttribution,
+          header: header,
         ),
       ),
     );
@@ -777,6 +1004,7 @@ void _showToolDetail(BuildContext context, ToolUIPart part) {
           resultLabel: l10n.chatMessageWidgetResult,
           imagesLabel: l10n.chatMessageWidgetImages,
           weatherAttribution: weatherAttribution,
+          header: header,
         );
       },
     ),
@@ -795,6 +1023,7 @@ class _ToolDetailDesktopDialog extends StatefulWidget {
     required this.imagesLabel,
     this.screenTimeResult,
     this.weatherAttribution,
+    this.header,
   });
 
   static const dialogKey = ValueKey('tool_detail_desktop_dialog');
@@ -810,6 +1039,7 @@ class _ToolDetailDesktopDialog extends StatefulWidget {
   final String imagesLabel;
   final ScreenTimeResult? screenTimeResult;
   final WeatherAttribution? weatherAttribution;
+  final Widget? header;
 
   @override
   State<_ToolDetailDesktopDialog> createState() =>
@@ -904,6 +1134,7 @@ class _ToolDetailDesktopDialogState extends State<_ToolDetailDesktopDialog> {
                             imagesLabel: widget.imagesLabel,
                             padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                             weatherAttribution: widget.weatherAttribution,
+                            header: widget.header,
                           ),
                   ),
                 ),
@@ -927,6 +1158,7 @@ class _ToolDetailBody extends StatelessWidget {
     required this.imagesLabel,
     this.padding = const EdgeInsets.fromLTRB(16, 8, 16, 24),
     this.weatherAttribution,
+    this.header,
   });
 
   final ScrollController scrollController;
@@ -938,11 +1170,12 @@ class _ToolDetailBody extends StatelessWidget {
   final String imagesLabel;
   final EdgeInsets padding;
   final WeatherAttribution? weatherAttribution;
+  final Widget? header;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return SelectionArea(
+    return AppSelectionArea(
       child: CustomScrollView(
         controller: scrollController,
         slivers: [
@@ -950,6 +1183,13 @@ class _ToolDetailBody extends StatelessWidget {
             padding: padding,
             sliver: SliverMainAxisGroup(
               slivers: [
+                if (header != null)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: header,
+                    ),
+                  ),
                 ToolDetailTextSection(label: argumentsLabel, text: argsPretty),
                 const SliverToBoxAdapter(child: SizedBox(height: 12)),
                 ToolDetailTextSection(label: resultLabel, text: resultText),
@@ -1009,6 +1249,7 @@ class _ToolDetailBody extends StatelessWidget {
 }
 
 class ChatMessageWidget extends StatefulWidget {
+  final PageStorageBucket? timelineStorage;
   final ChatMessage message;
   final Widget? modelIcon;
   final bool showModelIcon;
@@ -1041,6 +1282,10 @@ class ChatMessageWidget extends StatefulWidget {
   final VoidCallback? onToggleReasoning;
   // For multiple reasoning segments
   final List<ReasoningSegment>? reasoningSegments;
+
+  /// Presentation overlays extracted from inline thinking are not independent
+  /// provider reasoning. Keep removing their original spans from the body.
+  final bool reasoningSegmentsFromInlineThinking;
   // Optional translation UI props
   final bool translationExpanded;
   final VoidCallback? onToggleTranslation;
@@ -1071,6 +1316,7 @@ class ChatMessageWidget extends StatefulWidget {
   final bool collapseLongUserText;
 
   const ChatMessageWidget({
+    this.timelineStorage,
     super.key,
     required this.message,
     this.modelIcon,
@@ -1100,6 +1346,7 @@ class ChatMessageWidget extends StatefulWidget {
     this.reasoningFinishedAt,
     this.onToggleReasoning,
     this.reasoningSegments,
+    this.reasoningSegmentsFromInlineThinking = false,
     this.translationExpanded = true,
     this.onToggleTranslation,
     this.toolParts,
@@ -1143,6 +1390,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
   // Memoized think-tag parse, keyed by source string equality. The parser is
   // a pure function of message content, so a single slot is enough.
   String? _inlineThinkMemoSource;
+  UiMessageSource? _inlineThinkMemoUiSource;
   ThinkingTagParseResult? _inlineThinkMemoResult;
   // Memoized assistant visual-regex results, keyed by scope + input string.
   // Cleared when the rule signature changes; skipped while streaming because
@@ -1152,6 +1400,23 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
   // Search-result extraction is keyed by tool-part list identity.
   List<ToolUIPart>? _searchItemsParts;
   List<Map<String, dynamic>>? _searchItemsCache;
+  Map<String, String> _citationIndexLookup = const {};
+  String? Function(String) _citationIndexResolver = (_) => null;
+  final _localTimelineStorage = PageStorageBucket();
+  final _thinkingWidgets = Expando<(Object, Widget)>();
+  List<ReasoningSegment>? _currentReasoningSegments;
+  Future<void> _submitRecoveredAnswer(
+    ToolUIPart part,
+    AskUserResult result,
+  ) async {
+    await widget.onRecoveredAskUserAnswer?.call(part, result);
+  }
+
+  IncrementalTimelineProjection? _incrementalTimeline;
+  final _timelineVisibility = TimelineVisibilityCache();
+  List<ToolUIPart>? _timelineToolSource;
+  List<TimelineToolRef> _timelineTools = const [];
+  final _timelineToolRefs = Expando<TimelineToolRef>();
 
   @override
   void initState() {
@@ -1180,20 +1445,29 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
   @override
   void didUpdateWidget(covariant ChatMessageWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _reconcileUiOwner();
     _syncTicker();
     // Auto-collapse when inline <think> transitions from loading -> finished
     _applyAutoCollapseInlineThinkIfFinished(oldWidget: oldWidget);
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reconcileUiOwner();
+  }
+
+  void _reconcileUiOwner() => UiRuntimeScope.maybeOf(context)?.reconcile(
+    widget.message,
+    hasProviderReasoning:
+        (widget.reasoningText?.isNotEmpty ?? false) ||
+        widget.reasoningLoading ||
+        (!widget.reasoningSegmentsFromInlineThinking &&
+            (widget.reasoningSegments?.isNotEmpty ?? false)),
+  );
+
   void _applyAutoCollapseInlineThinkIfFinished({ChatMessageWidget? oldWidget}) {
     if (!mounted) return;
-    final newExtracted = _legacyInlineThinkingFor(
-      widget,
-    ).thinkingTexts.join('\n\n');
-    final usingInlineThinkNew =
-        (widget.reasoningText == null || widget.reasoningText!.isEmpty) &&
-        newExtracted.isNotEmpty;
-
     bool usingInlineThinkOld = false;
     if (oldWidget != null) {
       final oldExtracted = _legacyInlineThinkingFor(
@@ -1204,6 +1478,15 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
               oldWidget.reasoningText!.isEmpty) &&
           oldExtracted.isNotEmpty;
     }
+
+    // Read the old memo before parsing the new source so the build can reuse
+    // the new result instead of alternating the single-slot cache.
+    final newExtracted = _legacyInlineThinkingFor(
+      widget,
+    ).thinkingTexts.join('\n\n');
+    final usingInlineThinkNew =
+        (widget.reasoningText == null || widget.reasoningText!.isEmpty) &&
+        newExtracted.isNotEmpty;
 
     final autoCollapse = context.read<SettingsProvider>().autoCollapseThinking;
 
@@ -1252,9 +1535,11 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
   }
 
   ThinkingTagParseResult _legacyInlineThinkingFor(ChatMessageWidget widget) {
-    if ((widget.reasoningText?.isNotEmpty ?? false) ||
+    if (messageHasProviderReasoning(widget.message) ||
+        (widget.reasoningText?.isNotEmpty ?? false) ||
         widget.reasoningLoading ||
-        (widget.reasoningSegments?.isNotEmpty ?? false)) {
+        (!widget.reasoningSegmentsFromInlineThinking &&
+            (widget.reasoningSegments?.isNotEmpty ?? false))) {
       return ThinkingTagParseResult(
         visibleContent: widget.message.content,
         thinkingTexts: const <String>[],
@@ -1262,8 +1547,18 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     }
     final source = widget.message.content;
     final memo = _inlineThinkMemoResult;
-    if (memo != null && _inlineThinkMemoSource == source) return memo;
-    final parsed = ThinkingTagParser.parseLegacyInlineBlocks(source);
+    final uiSource = UiMessageSource.of(widget.message.parts);
+    if (memo != null &&
+        _inlineThinkMemoSource == source &&
+        identical(uiSource, _inlineThinkMemoUiSource)) {
+      return memo;
+    }
+    final parsed = ThinkingTagParser.parseLegacyInlineBlocks(
+      source,
+      protectedRanges: uiSource.protectedJoinedRanges,
+      includeUnclosed: uiSource.hasFences,
+    );
+    _inlineThinkMemoUiSource = uiSource;
     _inlineThinkMemoSource = source;
     _inlineThinkMemoResult = parsed;
     return parsed;
@@ -1359,7 +1654,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
       builder: (dctx) => AlertDialog(
         backgroundColor: dctx.overlaySurface,
         title: Text(l10n.chatMessageWidgetRegenerateConfirmTitle),
-        content: Text(content),
+        content: Text('$content\n\n${l10n.branchInheritNote}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dctx).pop(false),
@@ -1384,38 +1679,18 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     }
 
     final providerId = widget.message.providerId;
-    String baseId = modelId;
+    String displayName = modelId;
     String? providerName;
     if (providerId != null && providerId.isNotEmpty) {
       try {
         final cfg = settings.getProviderConfig(providerId);
         providerName = cfg.name.trim();
-        final ov = cfg.modelOverrides[modelId] as Map?;
-        if (ov != null) {
-          final name = (ov['name'] as String?)?.trim();
-          if (name != null && name.isNotEmpty) {
-            if (settings.showProviderInChatMessage && providerName.isNotEmpty) {
-              return '$name | $providerName';
-            }
-            return name;
-          }
-          final apiId = (ov['apiModelId'] ?? ov['api_model_id'])
-              ?.toString()
-              .trim();
-          if (apiId != null && apiId.isNotEmpty) {
-            baseId = apiId;
-          }
-        }
+        final resolved = ModelSpecResolver.instance.resolve(cfg, modelId);
+        displayName = resolved.override.displayName ?? resolved.spec.upstreamId;
       } catch (_) {
-        // ignore lookup failures; fall through to inferred name.
+        // ignore lookup failures; fall through to the logical model id.
       }
     }
-
-    final inferred = ModelRegistry.infer(
-      ModelInfo(id: baseId, displayName: baseId),
-    );
-    final fallback = inferred.displayName.trim();
-    final displayName = fallback.isNotEmpty ? fallback : baseId;
     if (settings.showProviderInChatMessage &&
         providerName != null &&
         providerName.isNotEmpty) {
@@ -1458,7 +1733,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     final safeBottom = insets.bottom + 12;
 
     const double menuWidth = 220; // compact width
-    const double estMenuHeight = 140; // ~ 3 rows
+    final double estMenuHeight = widget.onEdit == null ? 140 : 184;
     const double gap = 10; // space between bubble and menu
 
     // Horizontal placement: align menu's right edge to bubble's right edge,
@@ -1531,8 +1806,8 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child: BackdropFilter(
-                      filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                    child: DesktopOverlayBackdrop(
+                      sigma: 14,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: cs.surfaceContainerHigh.withValues(
@@ -1552,20 +1827,29 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                                   if (widget.onCopy != null) {
                                     widget.onCopy!.call();
                                   } else {
-                                    await Clipboard.setData(
-                                      ClipboardData(
-                                        text: widget.message.content,
+                                    await copyUiMessage(
+                                      context,
+                                      widget.message,
+                                    );
+                                  }
+                                },
+                              ),
+                              _MenuItem(
+                                icon: Lucide.TextSelect,
+                                label: l10n.messageMoreSheetSelectCopy,
+                                onTap: () {
+                                  Navigator.of(ctx).pop();
+                                  WidgetsBinding.instance.addPostFrameCallback((
+                                    _,
+                                  ) {
+                                    if (!mounted) return;
+                                    unawaited(
+                                      showSelectCopySheet(
+                                        context,
+                                        message: widget.message,
                                       ),
                                     );
-                                    if (mounted) {
-                                      showAppSnackBar(
-                                        context,
-                                        message: l10n
-                                            .chatMessageWidgetCopiedToClipboard,
-                                        type: NotificationType.success,
-                                      );
-                                    }
-                                  }
+                                  });
                                 },
                               ),
                               if (widget.onEdit != null)
@@ -1625,43 +1909,18 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
         ),
       );
     } else if (avatarType == 'url' && avatarValue != null) {
-      final url = avatarValue;
-      avatarContent = FutureBuilder<String?>(
-        future: AvatarCache.getPath(url),
-        builder: (ctx, snap) {
-          final p = snap.data;
-          if (p != null && File(p).existsSync()) {
-            return ClipOval(
-              child: Image.file(
-                File(p),
-                width: 32,
-                height: 32,
-                fit: BoxFit.cover,
-              ),
-            );
-          }
-          return ClipOval(
-            child: Image.network(
-              url,
-              width: 32,
-              height: 32,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) =>
-                  Icon(Lucide.User, size: 18, color: cs.primary),
-            ),
-          );
-        },
+      avatarContent = AvatarImage(
+        source: avatarValue,
+        isNetwork: true,
+        size: 32,
+        fallback: Icon(Lucide.User, size: 18, color: cs.primary),
       );
     } else if (avatarType == 'file' && avatarValue != null) {
-      final fixed = SandboxPathResolver.fix(avatarValue);
-      final f = File(fixed);
-      if (f.existsSync()) {
-        avatarContent = ClipOval(
-          child: Image.file(f, width: 32, height: 32, fit: BoxFit.cover),
-        );
-      } else {
-        avatarContent = Icon(Lucide.User, size: 18, color: cs.primary);
-      }
+      avatarContent = AvatarImage(
+        source: avatarValue,
+        size: 32,
+        fallback: Icon(Lucide.User, size: 18, color: cs.primary),
+      );
     } else {
       avatarContent = Icon(Lucide.User, size: 18, color: cs.primary);
     }
@@ -1733,7 +1992,6 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     final userAvatarValue = context.select<UserProvider, String?>(
       (u) => u.avatarValue,
     );
-    final l10n = AppLocalizations.of(context)!;
     final userMessageSettings = context
         .select<
           SettingsProvider,
@@ -1758,11 +2016,21 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     // Attachments come from structured parts only. Literal marker-like text
     // inside TextPart stays plain text and is never re-parsed.
     final assistant = _assistantForMessage();
-    final visualText = _applyVisualAssistantRegexes(
-      widget.message.content,
+    final uiContent = UiUserMessageContent(widget.message);
+    final mappedUser = applyAssistantRegexesProtected(
+      ProtectedText(
+        uiContent.text,
+        const [],
+        sourceMap: SourceTextMap.identity(
+          uiContent.text.length,
+          offset: widget.message.content.length - uiContent.text.length,
+        ),
+      ),
       assistant: assistant,
       scope: AssistantRegexScope.user,
+      target: AssistantRegexTransformTarget.visual,
     );
+    final visualText = mappedUser.text;
     final showUserActions = userMessageSettings.showActions;
     final showVersionSwitcher = (widget.versionCount ?? 1) > 1;
     final mediaPreview = _buildAttachmentPreview(
@@ -1771,19 +2039,22 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
       isDark: isDark,
       alignEnd: true,
     );
-    final textBubble = visualText.isNotEmpty
+    final textBubble = visualText.isNotEmpty || uiContent.hasContext
         ? Container(
             key: ValueKey('user-message-text-bubble:${widget.message.id}'),
             child: _buildBubbleContainer(
               context: context,
               isUser: true,
-              child: _buildUserTextContent(
-                context,
-                visualText,
-                userMessageSettings.enableMarkdown,
-                widget.collapseLongUserText
-                    ? userMessageSettings.collapseChars
-                    : 0,
+              child: uiContent.wrap(
+                _buildUserTextContent(
+                  context,
+                  visualText,
+                  mappedUser.sourceMap!,
+                  userMessageSettings.enableMarkdown,
+                  widget.collapseLongUserText
+                      ? userMessageSettings.collapseChars
+                      : 0,
+                ),
               ),
             ),
           )
@@ -1892,17 +2163,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                             color: cs.onSurface.withValues(alpha: 0.9),
                             onTap:
                                 widget.onCopy ??
-                                () {
-                                  Clipboard.setData(
-                                    ClipboardData(text: widget.message.content),
-                                  );
-                                  showAppSnackBar(
-                                    context,
-                                    message:
-                                        l10n.chatMessageWidgetCopiedToClipboard,
-                                    type: NotificationType.success,
-                                  );
-                                },
+                                () => copyUiMessage(context, widget.message),
                           ),
                         ),
                       ),
@@ -2019,16 +2280,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
             if (widget.onCopy != null) {
               widget.onCopy!.call();
             } else {
-              await Clipboard.setData(
-                ClipboardData(text: widget.message.content),
-              );
-              if (mounted) {
-                showAppSnackBar(
-                  context,
-                  message: l10n.chatMessageWidgetCopiedToClipboard,
-                  type: NotificationType.success,
-                );
-              }
+              await copyUiMessage(context, widget.message);
             }
           },
         ),
@@ -2065,6 +2317,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
   Widget _buildUserTextContent(
     BuildContext context,
     String visualText,
+    SourceTextMap sourceMap,
     bool enableUserMarkdown,
     int collapseChars,
   ) {
@@ -2073,6 +2326,15 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
         defaultTargetPlatform == TargetPlatform.windows ||
         defaultTargetPlatform == TargetPlatform.linux;
     final double baseUser = isDesktop ? 14.0 : 15.5;
+    final highlights = quoteSourceHighlights(
+      context,
+      widget.message,
+      visualText,
+      sourceMap: sourceMap,
+    );
+    final highlightColor = Theme.of(
+      context,
+    ).colorScheme.primary.withValues(alpha: .22);
 
     Widget content;
     if (enableUserMarkdown) {
@@ -2082,11 +2344,41 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
           text: visualText,
           baseStyle: TextStyle(fontSize: baseUser, height: 1.45),
           conversationId: widget.message.conversationId,
+          highlightRanges: highlights,
         ),
       );
     } else {
-      content = Text(
-        visualText,
+      content = Text.rich(
+        widget.message.quotes.isNotEmpty
+            ? buildQuoteTextSpan(
+                text: visualText,
+                quotes: widget.message.quotes,
+                quoteAtOffset: (offset) => quoteAtSourceOffset(
+                  widget.message.content,
+                  widget.message.quotes,
+                  sourceMap.sourceRange(offset, offset + 1).start,
+                ),
+                highlights: [
+                  for (final range in highlights)
+                    TextRange(start: range.start, end: range.end),
+                ],
+                highlightColor: highlightColor,
+                token: (quote, offset) => SelectableSpanAdapter(
+                  selectedText: '\uFFFC',
+                  child: QuoteChip(
+                    quote: quote,
+                    selected: highlights.any(
+                      (range) => range.start <= offset && range.end > offset,
+                    ),
+                    style: TextStyle(fontSize: baseUser, height: 1.4),
+                  ),
+                ),
+              )
+            : highlightedQuoteSource(
+                UnicodeSanitizer.sanitize(visualText),
+                highlights,
+                highlightColor,
+              ),
         style: TextStyle(
           fontSize: baseUser,
           height: 1.4,
@@ -2095,9 +2387,18 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
       );
     }
 
+    content = QuoteRenderScope(
+      source: widget.message.content,
+      sourceMap: sourceMap,
+      quotes: widget.message.quotes,
+      child: content,
+    );
     if (isDesktop) {
-      content = SelectionArea(
+      content = AppSelectionArea(
         key: ValueKey('user_${widget.message.id}'),
+        message: widget.message,
+        sourceText: visualText,
+        sourceMap: sourceMap,
         child: content,
       );
     }
@@ -2108,6 +2409,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
       content = CollapsibleUserText(
         key: ValueKey('user-collapse:${widget.message.id}'),
         collapsedHeight: lineHeight * _collapsedUserTextLines,
+        reveal: highlights.isNotEmpty,
         child: content,
       );
     }
@@ -2285,6 +2587,71 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
 
       if (part is FilePart) {
         final d = part;
+        final uri = d.uri.trim();
+        final localAudio =
+            !d.unavailable &&
+            isAudioMime(
+              inferMediaMimeFromSource(d.name, fallbackMime: d.mime ?? ''),
+            ) &&
+            !uri.startsWith('http://') &&
+            !uri.startsWith('https://') &&
+            !uri.startsWith('data:');
+        if (localAudio) {
+          items.add(
+            AudioClipPlayer(
+              key: ValueKey(
+                '$roleKey-message-attachment:${widget.message.id}:$partIndex',
+              ),
+              path: SandboxPathResolver.fix(uri),
+              builder: (context, button, time) => Container(
+                padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? cs.onSurface.withValues(alpha: 0.08)
+                      : cs.surface.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: cs.outlineVariant.withValues(alpha: 0.18),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    button,
+                    const SizedBox(width: 4),
+                    // The name yields width so the button and time always fit.
+                    Flexible(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 180),
+                        child: Text(
+                          d.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: cs.onSurface.withValues(alpha: 0.86),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (time != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        time,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          color: cs.onSurface.withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+          continue;
+        }
         items.add(
           IosCardPress(
             key: ValueKey(
@@ -2456,29 +2823,51 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     BuildContext context,
     String visualContent,
     bool enableAssistantMarkdown,
-    Map<String, String> citationIndexLookup, {
+    String? Function(String) citationIndexResolver, {
     String contentKey = '',
+    Object? detailsStateKey,
+    UiTextSlice? uiSource,
+    SourceTextMap? sourceMap,
   }) {
     final bool isDesktop =
         defaultTargetPlatform == TargetPlatform.macOS ||
         defaultTargetPlatform == TargetPlatform.windows ||
         defaultTargetPlatform == TargetPlatform.linux;
     final double baseAssistant = isDesktop ? 14.0 : 15.7;
+    final highlights = quoteSourceHighlights(
+      context,
+      widget.message,
+      visualContent,
+      sourceMap: sourceMap,
+    );
 
     Widget assistantContent;
     if (enableAssistantMarkdown) {
       assistantContent = MarkdownWithCodeHighlight(
         text: visualContent,
-        onCitationTap: (id) => _handleCitationTap(id),
-        citationIndexResolver: (id) =>
-            _resolveCitationIndex(id, citationIndexLookup),
+        detailsStateKey: detailsStateKey,
+        highlightRanges: highlights,
+        uiHost: widget.message.role != 'assistant' || uiSource == null
+            ? null
+            : UiHostBinding(
+                conversationId: widget.message.conversationId,
+                revisionId: widget.message.id,
+                source: uiSource,
+                generation: uiGenerationStatus(widget.message),
+              ),
+        onCitationTap: _handleCitationTap,
+        citationIndexResolver: citationIndexResolver,
         baseStyle: TextStyle(fontSize: baseAssistant, height: 1.5),
         streaming: widget.message.isStreaming,
         conversationId: widget.message.conversationId,
       );
     } else {
-      assistantContent = Text(
-        visualContent,
+      assistantContent = Text.rich(
+        highlightedQuoteSource(
+          UnicodeSanitizer.sanitize(visualContent),
+          highlights,
+          Theme.of(context).colorScheme.primary.withValues(alpha: .22),
+        ),
         style: TextStyle(
           fontSize: baseAssistant,
           height: 1.5,
@@ -2501,7 +2890,10 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     );
 
     return RepaintBoundary(
-      child: SelectionArea(
+      child: AppSelectionArea(
+        message: widget.message,
+        sourceText: visualContent,
+        sourceMap: sourceMap,
         key: ValueKey(
           contentKey.isEmpty
               ? 'assistant_${widget.message.id}'
@@ -2560,23 +2952,40 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     BuildContext context,
     String visualContent,
     bool enableAssistantMarkdown,
-    Map<String, String> citationIndexLookup, {
+    String? Function(String) citationIndexResolver, {
     required String blockKey,
+    UiTextSlice? uiSource,
+    SourceTextMap? sourceMap,
   }) {
     final split = context.select<SettingsProvider, bool>(
       (s) => s.assistantBubbleSplitParagraphs,
     );
     final parts = split
-        ? splitAssistantParagraphs(visualContent)
-        : <String>[visualContent];
+        ? splitAssistantParagraphsWithSource(visualContent)
+        : <AssistantParagraph>[
+            AssistantParagraph(
+              visualContent,
+              SourceSpan(0, visualContent.length),
+            ),
+          ];
+    final detailsBlockKey = sourceMap == null
+        ? blockKey
+        : ('source', sourceMap.sourceRange(0, 0).start);
     return <Widget>[
       for (var i = 0; i < parts.length; i++)
         _buildAssistantTextBlock(
           context,
-          parts[i],
+          uiSource == null ? parts[i].text : parts[i].span.slice(visualContent),
+          uiSource: uiSource?.slice(parts[i].span.start, parts[i].span.end),
           enableAssistantMarkdown,
-          citationIndexLookup,
+          citationIndexResolver,
           contentKey: parts.length == 1 ? '' : '$blockKey.$i',
+          detailsStateKey: (widget.message.id, detailsBlockKey, i),
+          sourceMap: sourceMap == null
+              ? null
+              : uiSource == null
+              ? parts[i].sourceMap.through(sourceMap)
+              : sourceMap.slice(parts[i].span.start, parts[i].span.end),
         ),
     ];
   }
@@ -2585,8 +2994,11 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     BuildContext context,
     String visualContent,
     bool enableAssistantMarkdown,
-    Map<String, String> citationIndexLookup, {
+    String? Function(String) citationIndexResolver, {
     String contentKey = '',
+    Object? detailsStateKey,
+    UiTextSlice? uiSource,
+    SourceTextMap? sourceMap,
   }) {
     return _assistantBlockWidth(
       context,
@@ -2596,8 +3008,11 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
           context,
           visualContent,
           enableAssistantMarkdown,
-          citationIndexLookup,
+          citationIndexResolver,
           contentKey: contentKey,
+          detailsStateKey: detailsStateKey,
+          uiSource: uiSource,
+          sourceMap: sourceMap,
         ),
       ),
     );
@@ -2629,13 +3044,15 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
   TimelineProjection _projectAssistantTimeline(
     String visualContent, {
     List<ReasoningSegment>? reasoningSegments,
+    SourceTextMap? sourceMap,
   }) {
     final assistant = _assistantForMessage();
-    return projectAssistantTimeline(
-      parts: widget.message.parts,
-      liveTools: [
+    if (widget.toolParts is! ToolPartSnapshot ||
+        !identical(widget.toolParts, _timelineToolSource)) {
+      _timelineToolSource = widget.toolParts;
+      _timelineTools = [
         for (var i = 0; i < (widget.toolParts?.length ?? 0); i++)
-          TimelineToolRef(
+          _timelineToolRefs[widget.toolParts![i]] ??= TimelineToolRef(
             providerId: widget.toolParts![i].id,
             fallbackOrdinal: i,
             toolName: widget.toolParts![i].toolName,
@@ -2643,24 +3060,50 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
             content: widget.toolParts![i].content,
             metadata: widget.toolParts![i].metadata,
             loading: widget.toolParts![i].loading,
-            memoToken: identityHashCode(widget.toolParts![i]),
+            memoToken: widget.toolParts![i].cacheToken,
           ),
-      ],
-      reasoningSegments: [
-        for (final segment in reasoningSegments ?? const <ReasoningSegment>[])
-          TimelineReasoningRef(
-            text: segment.text,
-            expanded: segment.expanded,
-            loading: segment.loading,
-            startAt: segment.startAt,
-            finishedAt: segment.finishedAt,
-            toolStartIndex: segment.toolStartIndex,
-          ),
-      ],
+      ];
+    }
+    final reasoning = <TimelineReasoningRef>[
+      for (final segment in reasoningSegments ?? const <ReasoningSegment>[])
+        TimelineReasoningRef(
+          text: segment.text,
+          expanded: segment.expanded,
+          loading: segment.loading,
+          startAt: segment.startAt,
+          finishedAt: segment.finishedAt,
+          toolStartIndex: segment.toolStartIndex,
+        ),
+    ];
+    final parts = widget.message.parts;
+    if (widget.message.isStreaming &&
+        parts is MessagePartSnapshot &&
+        parts.arrivalOrdered &&
+        (assistant?.regexRules.isEmpty ?? true) &&
+        !_legacyInlineThinkingFor(widget).hasThinking &&
+        !UiMessageSource.of(parts).hasCandidate) {
+      return (_incrementalTimeline ??= IncrementalTimelineProjection()).project(
+        parts: parts,
+        liveTools: _timelineTools,
+        reasoning: reasoning,
+      );
+    }
+    _incrementalTimeline = null;
+    return projectAssistantTimeline(
+      parts: parts,
+      liveTools: _timelineTools,
+      reasoningSegments: reasoning,
       visualContent: visualContent,
+      visualSourceMap: sourceMap,
       contentSplitOffsets: widget.contentSplitOffsets,
       reasoningCountAtSplit: widget.reasoningCountAtSplit,
       toolCountAtSplit: widget.toolCountAtSplit,
+      transformProtectedText: (text) => applyAssistantRegexesProtected(
+        text,
+        assistant: assistant,
+        scope: AssistantRegexScope.assistant,
+        target: AssistantRegexTransformTarget.visual,
+      ),
       transformText: (text) => _applyVisualAssistantRegexes(
         text,
         assistant: assistant,
@@ -2698,10 +3141,12 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
               loading: step.reasoning!.loading,
               startAt: step.reasoning!.startAt,
               finishedAt: step.reasoning!.finishedAt,
-              onToggle: _projectedReasoningToggle(
-                step.reasoningOverlayIndex,
-                reasoningSegments,
-              ),
+              onToggle: step.reasoningOverlayIndex == null
+                  ? null
+                  : () => _projectedReasoningToggle(
+                      step.reasoningOverlayIndex,
+                      _currentReasoningSegments,
+                    )?.call(),
               toolStartIndex: step.reasoning!.toolStartIndex,
             ),
             reasoningCountAfter: step.reasoningCountAfter,
@@ -2780,6 +3225,10 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     final showModelTimestamp = context.select<SettingsProvider, bool>(
       (s) => s.showModelTimestamp,
     );
+    final showTotalTokens = context.select<SettingsProvider, bool>(
+      (s) => s.showTotalTokens,
+    );
+    final finishUsage = showTotalTokens ? null : widget.message.finishUsage;
     final enableAssistantMarkdown = context.select<SettingsProvider, bool>(
       (s) => s.enableAssistantMarkdown,
     );
@@ -2800,11 +3249,19 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     final parsedInlineThinking = _legacyInlineThinkingFor(widget);
     final extractedThinking = parsedInlineThinking.thinkingTexts.join('\n\n');
     final contentWithoutThink = parsedInlineThinking.visibleContent;
-    final visualContent = _applyVisualAssistantRegexes(
-      contentWithoutThink,
+    final mappedVisual = applyAssistantRegexesProtected(
+      ProtectedText(
+        contentWithoutThink,
+        const [],
+        sourceMap:
+            parsedInlineThinking.sourceMap ??
+            SourceTextMap.identity(widget.message.content.length),
+      ),
       assistant: assistant,
       scope: AssistantRegexScope.assistant,
+      target: AssistantRegexTransformTarget.visual,
     );
+    final visualContent = mappedVisual.text;
     final visualTranslation = widget.message.translation != null
         ? _applyVisualAssistantRegexes(
             widget.message.translation!,
@@ -2818,14 +3275,16 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     final bool isTranslating =
         translationText == l10n.chatMessageWidgetTranslating;
     final searchItems = _allSearchItems();
-    final citationIndexLookup = _buildCitationIndexLookup(searchItems);
+    final citationIndexResolver = _buildCitationIndexResolver(searchItems);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final effectiveReasoningSegments = _effectiveReasoningSegments(
       extractedThinking,
     );
+    _currentReasoningSegments = effectiveReasoningSegments;
     final timelineProjection = _projectAssistantTimeline(
       visualContent,
       reasoningSegments: effectiveReasoningSegments,
+      sourceMap: mappedVisual.sourceMap,
     );
     final mediaPreview = _buildAttachmentPreview(
       context,
@@ -2883,26 +3342,14 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                             color: cs.onSurface.withValues(alpha: 0.7),
                           ),
                         ),
-                      Builder(
-                        builder: (context) {
-                          final List<Widget> rowChildren = [];
-                          if (showModelTimestamp) {
-                            rowChildren.add(
-                              Text(
-                                _dateFormat.format(widget.message.timestamp),
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: cs.onSurface.withValues(alpha: 0.5),
-                                ),
-                              ),
-                            );
-                          }
-                          // Token stats moved to action toolbar
-                          return rowChildren.isNotEmpty
-                              ? Row(children: rowChildren)
-                              : const SizedBox.shrink();
-                        },
-                      ),
+                      if (showModelTimestamp)
+                        Text(
+                          _dateFormat.format(widget.message.timestamp),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: cs.onSurface.withValues(alpha: 0.5),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -2941,7 +3388,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                     conversationId: widget.message.conversationId,
                   ) !=
                   null;
-              final visibleBlocks = visibleAssistantTimeline(
+              final visibleBlocks = _timelineVisibility.project(
                 timelineProjection,
                 showThinkingCards: showThinkingCards,
                 showToolCards: showToolCards,
@@ -2986,7 +3433,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                       context,
                       visualContent,
                       enableAssistantMarkdown,
-                      citationIndexLookup,
+                      citationIndexResolver,
                       blockKey: 'body',
                     ),
                   ),
@@ -2998,65 +3445,121 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                 ];
               }
 
-              final widgets = <Widget>[];
-              void addVisible(Widget child) {
-                if (widgets.isNotEmpty) {
-                  widgets.add(const SizedBox(height: 8));
-                }
-                widgets.add(child);
-              }
-
               final imageGroup = <String>[
                 for (final block in visibleBlocks)
                   if (block.isImage)
                     _resolveAttachmentImageUri(block.imageUri!),
               ];
-
-              for (
-                var blockIndex = 0;
-                blockIndex < visibleBlocks.length;
-                blockIndex++
-              ) {
-                final block = visibleBlocks[blockIndex];
-                if (block.isImage) {
-                  addVisible(
-                    _buildAssistantImageBlock(
-                      context,
-                      block.imageUri!,
-                      imageKey:
-                          block.imageKey ??
-                          timelineImageBlockKey(sourceOrdinal: 0),
-                      group: imageGroup,
-                    ),
-                  );
-                  continue;
-                }
-                if (block.isText) {
-                  for (final bubble in _buildAssistantTextBubbles(
-                    context,
-                    block.text!,
-                    enableAssistantMarkdown,
-                    citationIndexLookup,
-                    blockKey: 'text$blockIndex',
-                  )) {
-                    addVisible(bubble);
-                  }
-                  continue;
-                }
-                if (!block.isThinking) continue;
-                addVisible(
-                  _ChainOfThoughtCard(
-                    steps: _timelineStepsFromProjected(
-                      block.thinkingSteps,
-                      effectiveReasoningSegments,
-                    ),
-                    conversationId: widget.message.conversationId,
-                    showThinkingCards: showThinkingCards,
-                    showToolCards: showToolCards,
-                    onRecoveredAnswer: widget.onRecoveredAskUserAnswer,
-                  ),
+              Object blockKey(int index) {
+                final block = visibleBlocks[index];
+                return (
+                  widget.message.id,
+                  index,
+                  block.isText
+                      ? 'text'
+                      : block.isImage
+                      ? block.imageKey
+                      : block.thinkingSteps.first.sourceOrdinal,
                 );
               }
+
+              final widgets = <Widget>[
+                ViewportBlockList(
+                  itemCount: visibleBlocks.length,
+                  spacing: 8,
+                  structureToken: (
+                    widget.message.id,
+                    visibleBlocks.length,
+                    showThinkingCards,
+                    showToolCards,
+                  ),
+                  itemKey: blockKey,
+                  keepAlive: (index) => visibleBlocks[index].thinkingSteps.any(
+                    (step) =>
+                        step.tool?.toolName == LocalToolNames.askUser &&
+                        (step.tool!.loading ||
+                            (step.tool!.content?.isEmpty ?? true)),
+                  ),
+                  estimateExtent: (index, width) {
+                    final block = visibleBlocks[index];
+                    if (block.isImage) {
+                      return estimateTimelineImageHeight(
+                        maxWidth: width,
+                        aspectRatio: block.aspectRatio,
+                      );
+                    }
+                    if (block.isText) {
+                      return 32.0 +
+                          24 *
+                              (block.text!.length / math.max(20, width / 8))
+                                  .ceil();
+                    }
+                    return 8 + 36.0 * block.thinkingSteps.length;
+                  },
+                  itemBuilder: (context, index) {
+                    final block = visibleBlocks[index];
+                    if (block.isImage) {
+                      return _buildAssistantImageBlock(
+                        context,
+                        block.imageUri!,
+                        imageKey:
+                            block.imageKey ??
+                            timelineImageBlockKey(sourceOrdinal: index),
+                        group: imageGroup,
+                      );
+                    }
+                    if (block.isText) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: _interleaveAssistantBubbles(
+                          _buildAssistantTextBubbles(
+                            context,
+                            block.text!,
+                            enableAssistantMarkdown,
+                            citationIndexResolver,
+                            blockKey: 'text$index',
+                            uiSource: block.uiSource,
+                            sourceMap: block.sourceMap,
+                          ),
+                        ),
+                      );
+                    }
+                    final streaming =
+                        widget.message.isStreaming &&
+                        index == visibleBlocks.length - 1;
+                    final signature = (
+                      streaming,
+                      showThinkingCards,
+                      showToolCards,
+                      blockKey(index),
+                      widget.message.modelId,
+                      widget.message.timestamp,
+                      widget.onRecoveredAskUserAnswer != null,
+                    );
+                    final cached = _thinkingWidgets[block];
+                    if (cached != null && cached.$1 == signature) {
+                      return cached.$2;
+                    }
+                    final card = _ChainOfThoughtCard(
+                      key: ValueKey(blockKey(index)),
+                      message: widget.message,
+                      steps: _timelineStepsFromProjected(
+                        block.thinkingSteps,
+                        effectiveReasoningSegments,
+                      ),
+                      showThinkingCards: showThinkingCards,
+                      showToolCards: showToolCards,
+                      streaming: streaming,
+                      onRecoveredAnswer: widget.onRecoveredAskUserAnswer == null
+                          ? null
+                          : _submitRecoveredAnswer,
+                    );
+                    _thinkingWidgets[block] = (signature, card);
+                    return card;
+                  },
+                ),
+              ];
 
               // A round that only called tools leaves no visible text, but a
               // pending retry still has to say so somewhere.
@@ -3173,7 +3676,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                             Padding(
                               padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
                               child: RepaintBoundary(
-                                child: SelectionArea(
+                                child: AppSelectionArea(
                                   key: ValueKey(
                                     'translation_${widget.message.id}',
                                   ),
@@ -3194,13 +3697,9 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                                         translationContent =
                                             MarkdownWithCodeHighlight(
                                               text: translationText,
-                                              onCitationTap: (id) =>
-                                                  _handleCitationTap(id),
-                                              citationIndexResolver: (id) =>
-                                                  _resolveCitationIndex(
-                                                    id,
-                                                    citationIndexLookup,
-                                                  ),
+                                              onCitationTap: _handleCitationTap,
+                                              citationIndexResolver:
+                                                  citationIndexResolver,
                                               baseStyle: TextStyle(
                                                 fontSize: baseTranslation,
                                                 height: 1.4,
@@ -3210,7 +3709,9 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                                             );
                                       } else {
                                         translationContent = Text(
-                                          translationText,
+                                          UnicodeSanitizer.sanitize(
+                                            translationText,
+                                          ),
                                           style: TextStyle(
                                             fontSize: baseTranslation,
                                             height: 1.4,
@@ -3269,205 +3770,226 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                   : Padding(
                       key: const ValueKey('assistant-actions'),
                       padding: const EdgeInsets.only(top: 8),
-                      child: Row(
+                      child: OverflowBar(
+                        alignment: MainAxisAlignment.spaceBetween,
+                        overflowAlignment: OverflowBarAlignment.start,
+                        spacing: 12,
+                        overflowSpacing: 4,
                         children: [
-                          SizedBox(
-                            width: 28,
-                            height: 28,
-                            child: Center(
-                              child: IosIconButton(
-                                size: 16,
-                                padding: EdgeInsets.all(4),
-                                icon: Lucide.Copy,
-                                color: cs.onSurface.withValues(alpha: 0.9),
-                                onTap:
-                                    widget.onCopy ??
-                                    () {
-                                      Clipboard.setData(
-                                        ClipboardData(
-                                          text: widget.message.content,
-                                        ),
-                                      );
-                                      showAppSnackBar(
-                                        context,
-                                        message: l10n
-                                            .chatMessageWidgetCopiedToClipboard,
-                                        type: NotificationType.success,
-                                      );
-                                    },
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          SizedBox(
-                            width: 28,
-                            height: 28,
-                            child: Center(
-                              child: IosIconButton(
-                                size: 16,
-                                padding: EdgeInsets.all(4),
-                                icon: Lucide.RefreshCw,
-                                color: cs.onSurface.withValues(alpha: 0.9),
-                                onTap: widget.onRegenerate == null
-                                    ? null
-                                    : () => _confirmRegeneration(
-                                        widget.onRegenerate!,
-                                      ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Consumer<TtsProvider>(
-                            builder: (context, tts, _) {
-                              final ttsActive = tts.playbackState.isActive;
-                              return SizedBox(
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              SizedBox(
                                 width: 28,
                                 height: 28,
                                 child: Center(
                                   child: IosIconButton(
                                     size: 16,
                                     padding: EdgeInsets.all(4),
-                                    onTap: widget.onSpeak,
+                                    icon: Lucide.Copy,
                                     color: cs.onSurface.withValues(alpha: 0.9),
-                                    builder: (color) => AnimatedSwitcher(
-                                      duration: const Duration(
-                                        milliseconds: 200,
-                                      ),
-                                      transitionBuilder: (child, anim) =>
-                                          ScaleTransition(
-                                            scale: anim,
-                                            child: FadeTransition(
-                                              opacity: anim,
-                                              child: child,
-                                            ),
-                                          ),
-                                      child: Icon(
-                                        ttsActive
-                                            ? Lucide.CircleStop
-                                            : Lucide.Volume2,
-                                        key: ValueKey(
-                                          ttsActive ? 'stop' : 'speak',
+                                    onTap:
+                                        widget.onCopy ??
+                                        () => copyUiMessage(
+                                          context,
+                                          widget.message,
                                         ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: Center(
+                                  child: IosIconButton(
+                                    size: 16,
+                                    padding: EdgeInsets.all(4),
+                                    icon: Lucide.RefreshCw,
+                                    color: cs.onSurface.withValues(alpha: 0.9),
+                                    onTap: widget.onRegenerate == null
+                                        ? null
+                                        : () => _confirmRegeneration(
+                                            widget.onRegenerate!,
+                                          ),
+                                  ),
+                                ),
+                              ),
+                              Consumer<TtsProvider>(
+                                builder: (context, tts, _) {
+                                  final ttsActive = tts.playbackState.isActive;
+                                  return SizedBox(
+                                    width: 28,
+                                    height: 28,
+                                    child: Center(
+                                      child: IosIconButton(
                                         size: 16,
-                                        color: color,
+                                        padding: EdgeInsets.all(4),
+                                        onTap: widget.onSpeak,
+                                        color: cs.onSurface.withValues(
+                                          alpha: 0.9,
+                                        ),
+                                        builder: (color) => AnimatedSwitcher(
+                                          duration: const Duration(
+                                            milliseconds: 200,
+                                          ),
+                                          transitionBuilder: (child, anim) =>
+                                              ScaleTransition(
+                                                scale: anim,
+                                                child: FadeTransition(
+                                                  opacity: anim,
+                                                  child: child,
+                                                ),
+                                              ),
+                                          child: Icon(
+                                            ttsActive
+                                                ? Lucide.CircleStop
+                                                : Lucide.Volume2,
+                                            key: ValueKey(
+                                              ttsActive ? 'stop' : 'speak',
+                                            ),
+                                            size: 16,
+                                            color: color,
+                                          ),
+                                        ),
                                       ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: Center(
+                                  child: GestureDetector(
+                                    key: _translateBtnKey2,
+                                    behavior: HitTestBehavior.opaque,
+                                    onTapDown: (d) {
+                                      final isDesktop =
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.macOS ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.windows ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.linux;
+                                      if (isDesktop) {
+                                        try {
+                                          DesktopMenuAnchor.setPosition(
+                                            d.globalPosition,
+                                          );
+                                        } catch (_) {}
+                                      }
+                                    },
+                                    onTap: () {
+                                      final isDesktop =
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.macOS ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.windows ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.linux;
+                                      if (isDesktop) {
+                                        _setAnchorFromKey(_translateBtnKey2);
+                                      }
+                                      widget.onTranslate?.call();
+                                    },
+                                    child: IosIconButton(
+                                      size: 16,
+                                      padding: EdgeInsets.all(4),
+                                      icon: Lucide.Languages,
+                                      color: cs.onSurface.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      onTap: null,
                                     ),
                                   ),
                                 ),
-                              );
-                            },
-                          ),
-                          const SizedBox(width: 6),
-                          SizedBox(
-                            width: 28,
-                            height: 28,
-                            child: Center(
-                              child: GestureDetector(
-                                key: _translateBtnKey2,
-                                behavior: HitTestBehavior.opaque,
-                                onTapDown: (d) {
-                                  final isDesktop =
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.macOS ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.windows ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.linux;
-                                  if (isDesktop) {
-                                    try {
-                                      DesktopMenuAnchor.setPosition(
-                                        d.globalPosition,
-                                      );
-                                    } catch (_) {}
-                                  }
-                                },
-                                onTap: () {
-                                  final isDesktop =
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.macOS ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.windows ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.linux;
-                                  if (isDesktop) {
-                                    _setAnchorFromKey(_translateBtnKey2);
-                                  }
-                                  widget.onTranslate?.call();
-                                },
-                                child: IosIconButton(
-                                  size: 16,
-                                  padding: EdgeInsets.all(4),
-                                  icon: Lucide.Languages,
-                                  color: cs.onSurface.withValues(alpha: 0.9),
-                                  onTap: null,
+                              ),
+                              SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: Center(
+                                  child: GestureDetector(
+                                    key: _moreBtnKey2,
+                                    onTapDown: (d) {
+                                      final isDesktop =
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.macOS ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.windows ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.linux;
+                                      if (isDesktop) {
+                                        try {
+                                          DesktopMenuAnchor.setPosition(
+                                            d.globalPosition,
+                                          );
+                                        } catch (_) {}
+                                      }
+                                    },
+                                    onTap: () {
+                                      final isDesktop =
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.macOS ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.windows ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.linux;
+                                      if (isDesktop) {
+                                        _setAnchorFromKey(_moreBtnKey2);
+                                      }
+                                      widget.onMore?.call();
+                                    },
+                                    child: IosIconButton(
+                                      size: 16,
+                                      padding: EdgeInsets.all(4),
+                                      icon: Lucide.Ellipsis,
+                                      color: cs.onSurface.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      onTap: null,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          SizedBox(
-                            width: 28,
-                            height: 28,
-                            child: Center(
-                              child: GestureDetector(
-                                key: _moreBtnKey2,
-                                onTapDown: (d) {
-                                  final isDesktop =
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.macOS ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.windows ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.linux;
-                                  if (isDesktop) {
-                                    try {
-                                      DesktopMenuAnchor.setPosition(
-                                        d.globalPosition,
-                                      );
-                                    } catch (_) {}
-                                  }
-                                },
-                                onTap: () {
-                                  final isDesktop =
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.macOS ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.windows ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.linux;
-                                  if (isDesktop) {
-                                    _setAnchorFromKey(_moreBtnKey2);
-                                  }
-                                  widget.onMore?.call();
-                                },
-                                child: IosIconButton(
-                                  size: 16,
-                                  padding: EdgeInsets.all(4),
-                                  icon: Lucide.Ellipsis,
-                                  color: cs.onSurface.withValues(alpha: 0.9),
-                                  onTap: null,
+                              if ((widget.versionCount ?? 1) > 1) ...[
+                                _BranchSelector(
+                                  index: widget.versionIndex ?? 0,
+                                  total: widget.versionCount ?? 1,
+                                  onPrev: widget.onPrevVersion,
+                                  onNext: widget.onNextVersion,
                                 ),
-                              ),
-                            ),
+                              ],
+                            ],
                           ),
-                          if ((widget.versionCount ?? 1) > 1) ...[
-                            const SizedBox(width: 6),
-                            _BranchSelector(
-                              index: widget.versionIndex ?? 0,
-                              total: widget.versionCount ?? 1,
-                              onPrev: widget.onPrevVersion,
-                              onNext: widget.onNextVersion,
-                            ),
-                          ],
                           if (widget.showTokenStats &&
                               widget.message.totalTokens != null) ...[
-                            const Spacer(),
                             TokenDisplayWidget(
-                              totalTokens: widget.message.totalTokens!,
-                              promptTokens: widget.message.promptTokens,
-                              completionTokens: widget.message.completionTokens,
-                              cachedTokens: widget.message.cachedTokens,
+                              totalTokens:
+                                  finishUsage?.totalTokens ??
+                                  widget.message.totalTokens!,
+                              promptTokens:
+                                  finishUsage?.promptTokens ??
+                                  widget.message.promptTokens,
+                              completionTokens:
+                                  finishUsage?.completionTokens ??
+                                  widget.message.completionTokens,
+                              cachedTokens:
+                                  finishUsage?.cachedTokens ??
+                                  widget.message.cachedTokens,
+                              reasoningTokens:
+                                  finishUsage?.reasoningTokens ??
+                                  widget.message.reasoningTokens,
+                              cacheWriteTokens:
+                                  finishUsage?.cacheWriteTokens ??
+                                  widget.message.cacheWriteTokens,
                               durationMs: widget.message.durationMs,
+                              firstTokenMs: widget.message.firstTokenMs,
+                              totalCompletionTokens:
+                                  widget.message.completionTokens,
+                              providerId: widget.message.providerId,
+                              modelId: widget.message.modelId,
                             ),
                           ],
                         ],
@@ -3489,12 +4011,13 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     );
   }
 
-  // Build once per message so each citation marker only performs a map lookup.
-  // Insert IDs first so an exact ID match wins over a legacy numeric index.
-  Map<String, String> _buildCitationIndexLookup(
+  // Keep callbacks stable while only the streamed text changes. A new lookup
+  // changes the resolver identity so cached citation widgets refresh their labels.
+  String? Function(String) _buildCitationIndexResolver(
     List<Map<String, dynamic>> items,
   ) {
     final lookup = <String, String>{};
+    // An exact ID match wins over a legacy numeric index.
     for (final item in items) {
       final id = item['id']?.toString() ?? '';
       final index = item['index']?.toString() ?? '';
@@ -3504,19 +4027,18 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
       final index = item['index']?.toString() ?? '';
       if (index.isNotEmpty) lookup[index] ??= index;
     }
-    return lookup;
-  }
-
-  String? _resolveCitationIndex(
-    String id,
-    Map<String, String> citationIndexLookup,
-  ) {
-    final key = id.trim();
-    if (key.isEmpty) return null;
-    final direct = citationIndexLookup[key];
-    if (direct != null) return direct;
-    final asIndex = int.tryParse(key);
-    return asIndex == null ? null : citationIndexLookup[asIndex.toString()];
+    if (!mapEquals(lookup, _citationIndexLookup)) {
+      _citationIndexLookup = lookup;
+      _citationIndexResolver = (id) {
+        final key = id.trim();
+        if (key.isEmpty) return null;
+        final direct = lookup[key];
+        if (direct != null) return direct;
+        final asIndex = int.tryParse(key);
+        return asIndex == null ? null : lookup[asIndex.toString()];
+      };
+    }
+    return _citationIndexResolver;
   }
 
   // Try resolve citation id -> url from the latest search_web tool results of this assistant message
@@ -3683,42 +4205,13 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
   Widget _buildAssistantAvatar(ColorScheme cs) {
     final av = (widget.assistantAvatar ?? '').trim();
     if (av.isNotEmpty) {
-      if (av.startsWith('http')) {
-        return FutureBuilder<String?>(
-          future: AvatarCache.getPath(av),
-          builder: (ctx, snap) {
-            final p = snap.data;
-            if (p != null && File(p).existsSync()) {
-              return ClipOval(
-                child: Image.file(
-                  File(p),
-                  width: 32,
-                  height: 32,
-                  fit: BoxFit.cover,
-                ),
-              );
-            }
-            return ClipOval(
-              child: Image.network(
-                av,
-                width: 32,
-                height: 32,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _assistantInitial(cs),
-              ),
-            );
-          },
+      if (av.startsWith('http') || av.startsWith('/') || av.contains(':')) {
+        return AvatarImage(
+          source: av,
+          isNetwork: av.startsWith('http'),
+          size: 32,
+          fallback: _assistantInitial(cs),
         );
-      }
-      if (av.startsWith('/') || av.contains(':')) {
-        final fixed = SandboxPathResolver.fix(av);
-        final f = File(fixed);
-        if (f.existsSync()) {
-          return ClipOval(
-            child: Image.file(f, width: 32, height: 32, fit: BoxFit.cover),
-          );
-        }
-        return _assistantInitial(cs);
       }
       // treat as emoji or single char label
       final bool isIOS = defaultTargetPlatform == TargetPlatform.iOS;
@@ -3775,7 +4268,10 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
         ? _buildUserMessage()
         : widget.message.role == 'tool'
         ? _buildToolMessage()
-        : _buildAssistantMessage();
+        : PageStorage(
+            bucket: widget.timelineStorage ?? _localTimelineStorage,
+            child: _buildAssistantMessage(),
+          );
     return ChatSurfaceTheme(palette: palette, child: child);
   }
 }
@@ -4169,8 +4665,11 @@ class ToolUIPart {
   int get cacheToken => memoToken ?? identityHashCode(this);
 }
 
+final _workspacePartMemo = Expando<WorkspaceToolPart>('workspace tool');
+final _producedPartsMemo = Expando<List<WorkspaceToolPart>>('produced tools');
+
 WorkspaceToolPart _workspacePartFromUi(ToolUIPart part) {
-  return WorkspaceToolPart(
+  return _workspacePartMemo[part] ??= WorkspaceToolPart(
     id: part.id,
     toolName: part.toolName,
     arguments: part.arguments,
@@ -4182,10 +4681,20 @@ WorkspaceToolPart _workspacePartFromUi(ToolUIPart part) {
 
 List<WorkspaceToolPart> _producedWorkspaceParts(List<ToolUIPart>? parts) {
   if (parts == null || parts.isEmpty) return const <WorkspaceToolPart>[];
-  return [
+  final cached = parts is ToolPartSnapshot ? _producedPartsMemo[parts] : null;
+  if (cached != null) return cached;
+  final result = List<WorkspaceToolPart>.unmodifiable([
     for (final part in parts)
       if (isWorkspaceToolName(part.toolName)) _workspacePartFromUi(part),
-  ];
+  ]);
+  if (parts is ToolPartSnapshot) _producedPartsMemo[parts] = result;
+  return result;
+}
+
+/// Only an immutable tool-list snapshot can serve as an O(1) cache key.
+class ToolPartSnapshot extends UnmodifiableListView<ToolUIPart> {
+  ToolPartSnapshot(Iterable<ToolUIPart> parts)
+    : super(List<ToolUIPart>.of(parts, growable: false));
 }
 
 // Data for a reasoning segment (for mixed display)
@@ -4232,25 +4741,57 @@ class _TimelineStepData {
     required this.reasoningCountAfter,
     required this.toolCountAfter,
     this.sourceOrdinal = 0,
-  }) : tool = null;
-
+  }) : tool = null,
+       browserTools = null,
+       browserLite = false;
   const _TimelineStepData.tool({
     required this.tool,
     required this.reasoningCountAfter,
     required this.toolCountAfter,
     this.sourceOrdinal = 0,
-  }) : reasoning = null;
-
+  }) : reasoning = null,
+       browserTools = null,
+       browserLite = false;
+  _TimelineStepData.browserGroup({
+    required List<ToolUIPart> tools,
+    required bool lite,
+    required this.sourceOrdinal,
+    required this.reasoningCountAfter,
+    required this.toolCountAfter,
+  }) : browserTools = tools,
+       browserLite = lite,
+       tool = tools.last,
+       reasoning = null;
   final ReasoningSegment? reasoning;
   final ToolUIPart? tool;
-  final int reasoningCountAfter;
-  final int toolCountAfter;
-  final int sourceOrdinal;
-
+  final List<ToolUIPart>? browserTools;
+  final bool browserLite;
+  final int reasoningCountAfter, toolCountAfter, sourceOrdinal;
   bool get isReasoning => reasoning != null;
   bool get isTool => tool != null;
-  bool get loading => reasoning?.loading ?? tool?.loading ?? false;
+  bool get loading =>
+      browserTools?.any((tool) => tool.loading) ??
+      reasoning?.loading ??
+      tool?.loading ??
+      false;
 }
+
+List<_TimelineStepData> _groupBrowserSteps(
+  List<_TimelineStepData> steps,
+  _IdSet pendingApprovalIds,
+) => groupAdjacentBrowserSteps(
+  steps,
+  eligible: (step) =>
+      step.tool?.toolName == LocalToolNames.browser &&
+      !pendingApprovalIds.contains(step.tool!.id),
+  group: (steps, lite) => _TimelineStepData.browserGroup(
+    tools: List.unmodifiable(steps.map((step) => step.tool!)),
+    lite: lite,
+    sourceOrdinal: steps.first.sourceOrdinal,
+    reasoningCountAfter: steps.last.reasoningCountAfter,
+    toolCountAfter: steps.last.toolCountAfter,
+  ),
+);
 
 /// Value-equal id set so [context.select] can ignore identical approval snapshots.
 class _IdSet {
@@ -4436,17 +4977,21 @@ class _CachedTimelineStepState extends State<_CachedTimelineStep> {
 
 class _ChainOfThoughtCard extends StatefulWidget {
   const _ChainOfThoughtCard({
+    super.key,
     required this.steps,
-    required this.conversationId,
+    required this.message,
     required this.showThinkingCards,
     required this.showToolCards,
+    required this.streaming,
     this.onRecoveredAnswer,
   });
 
   final List<_TimelineStepData> steps;
-  final String conversationId;
+  final ChatMessage message;
+  String get conversationId => message.conversationId;
   final bool showThinkingCards;
   final bool showToolCards;
+  final bool streaming;
   final Future<void> Function(ToolUIPart part, AskUserResult result)?
   onRecoveredAnswer;
 
@@ -4454,11 +4999,22 @@ class _ChainOfThoughtCard extends StatefulWidget {
   State<_ChainOfThoughtCard> createState() => _ChainOfThoughtCardState();
 }
 
-class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard> {
+class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard>
+    with _StoredTimelineState<_ChainOfThoughtCard> {
+  @override
+  Object get storageId => ('chain', widget.key);
+  @override
+  Object saveViewState() => _showAllSteps;
+  @override
+  void restoreViewState(Object value) {
+    _showAllSteps = value as bool;
+  }
+
   bool _showAllSteps = false;
 
   Object _reasoningStepSignature({
     required ReasoningSegment step,
+    required int sourceIndex,
     required bool isFirst,
     required bool isLast,
     required ChatSurfaceForegroundPalette fg,
@@ -4469,12 +5025,16 @@ class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard> {
   }) {
     return (
       'reasoning',
+      widget.message.id,
+      widget.message.modelId,
+      widget.message.timestamp,
       step.text,
       step.expanded,
       step.loading,
       step.startAt,
       step.finishedAt,
       step.toolStartIndex,
+      sourceIndex,
       isFirst,
       isLast,
       fg,
@@ -4525,25 +5085,28 @@ class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard> {
     final hideToolResultImages = context.select<SettingsProvider, bool>(
       (s) => s.hideToolResultImages,
     );
+    final showBrowserPageCards = context.select<SettingsProvider, bool>(
+      (s) => s.showBrowserPageCards,
+    );
     final enableReasoningMarkdown = context.select<SettingsProvider, bool>(
       (s) => s.enableReasoningMarkdown,
     );
     final textScale = MediaQuery.textScalerOf(context).scale(1);
-    final filteredSteps = _visibleChatTimelineSteps(
+    final ungroupedSteps = _visibleChatTimelineSteps(
       context,
       widget.steps,
       showThinkingCards: widget.showThinkingCards,
       showToolCards: widget.showToolCards,
       conversationId: widget.conversationId,
     );
-    if (filteredSteps.isEmpty) {
+    if (ungroupedSteps.isEmpty) {
       return const SizedBox.shrink();
     }
     final pendingApprovalIds = context.select<ToolApprovalService, _IdSet>((
       approval,
     ) {
       return _IdSet({
-        for (final step in filteredSteps)
+        for (final step in ungroupedSteps)
           if (step.tool != null &&
               _matchingApprovalRequest(
                     approval: approval,
@@ -4554,6 +5117,10 @@ class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard> {
             step.tool!.id,
       });
     });
+    final filteredSteps = _groupBrowserSteps(
+      ungroupedSteps,
+      pendingApprovalIds,
+    );
     final l10n = AppLocalizations.of(context)!;
     final enableAdaptiveWidth =
         filteredSteps.isNotEmpty &&
@@ -4626,9 +5193,7 @@ class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard> {
                           Text(
                             _showAllSteps
                                 ? l10n.chainOfThoughtCollapse
-                                : l10n.chainOfThoughtExpandSteps(
-                                    widget.steps.length - visibleSteps.length,
-                                  ),
+                                : l10n.chainOfThoughtExpandSteps(hiddenCount),
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: AppFontWeights.semibold,
@@ -4639,8 +5204,30 @@ class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard> {
                       ),
                     ),
                   ),
-                for (var i = 0; i < visibleSteps.length; i++)
-                  () {
+                ViewportBlockList(
+                  itemCount: visibleSteps.length,
+                  structureToken: (visibleSteps.length, hiddenCount),
+                  itemKey: (i) {
+                    final step = visibleSteps[i];
+                    if (step.browserTools case final tools?) {
+                      return 'browser-group-${tools.first.id}-${step.sourceOrdinal}';
+                    }
+                    if (step.isReasoning) {
+                      return 'reasoning-${step.sourceOrdinal}';
+                    }
+                    return timelineToolStepKey(
+                      id: step.tool!.id,
+                      sourceOrdinal: step.sourceOrdinal,
+                      toolName: step.tool!.toolName,
+                    );
+                  },
+                  estimateExtent: (i, width) => 36,
+                  keepAlive: (i) =>
+                      visibleSteps[i].tool?.toolName ==
+                          LocalToolNames.askUser &&
+                      (visibleSteps[i].tool!.loading ||
+                          (visibleSteps[i].tool!.content?.isEmpty ?? true)),
+                  itemBuilder: (context, i) {
                     final step = visibleSteps[i];
                     final sourceIndex = hiddenCount + i;
                     final isFirst = i == 0;
@@ -4649,9 +5236,12 @@ class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard> {
                       final reasoning = step.reasoning!;
                       final hasToggle = reasoning.onToggle != null;
                       return _CachedTimelineStep(
-                        key: ValueKey<String>('reasoning-$sourceIndex'),
+                        key: ValueKey<String>(
+                          'reasoning-${step.sourceOrdinal}',
+                        ),
                         signature: _reasoningStepSignature(
                           step: reasoning,
+                          sourceIndex: sourceIndex,
                           isFirst: isFirst,
                           isLast: isLast,
                           fg: fg,
@@ -4661,14 +5251,60 @@ class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard> {
                           hasToggle: hasToggle,
                         ),
                         builder: () => _ChainOfThoughtReasoningStep(
+                          message: widget.message,
                           step: reasoning,
                           sourceIndex: sourceIndex,
+                          sourceOrdinal: step.sourceOrdinal,
                           isFirst: isFirst,
                           isLast: isLast,
                         ),
                       );
                     }
                     final part = step.tool!;
+                    if (step.browserTools case final tools?) {
+                      return _CachedTimelineStep(
+                        key: ValueKey(
+                          'browser-group-${tools.first.id}-${step.sourceOrdinal}',
+                        ),
+                        signature: (
+                          Object.hashAll(
+                            tools.map(
+                              (part) => (
+                                part.id,
+                                part.loading,
+                                part.content.hashCode,
+                                part.metadata.hashCode,
+                                Object.hashAll(
+                                  part.arguments.entries.map(
+                                    (entry) => (entry.key, entry.value),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          step.browserLite,
+                          isFirst,
+                          isLast,
+                          fg,
+                          theme.brightness,
+                          textScale,
+                          hideToolResultImages,
+                          showBrowserPageCards,
+                          widget.streaming,
+                          widget.conversationId,
+                        ),
+                        builder: () => _ChainOfThoughtBrowserGroup(
+                          tools: tools,
+                          lite: step.browserLite,
+                          conversationId: widget.conversationId,
+                          isFirst: isFirst,
+                          isLast: isLast,
+                          hideImages: hideToolResultImages,
+                          showPageCard: showBrowserPageCards,
+                          streaming: widget.streaming,
+                        ),
+                      );
+                    }
                     return _CachedTimelineStep(
                       key: ValueKey<String>(
                         timelineToolStepKey(
@@ -4698,7 +5334,8 @@ class _ChainOfThoughtCardState extends State<_ChainOfThoughtCard> {
                         );
                       },
                     );
-                  }(),
+                  },
+                ),
               ],
             ),
           ),
@@ -4726,6 +5363,8 @@ class _TimelineStepShell extends StatelessWidget {
     this.content,
     this.contentVisible = false,
     this.expectContent = false,
+    this.stableKey,
+    this.contentBottomPadding = 8,
   });
 
   final Widget icon;
@@ -4741,6 +5380,8 @@ class _TimelineStepShell extends StatelessWidget {
   /// Keep [AnimatedSize] mounted so a later result or expand can grow in.
   /// Finished steps with no body skip the slot entirely.
   final bool expectContent;
+  final Key? stableKey;
+  final double contentBottomPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -4790,50 +5431,86 @@ class _TimelineStepShell extends StatelessWidget {
     );
     if (content == null && !expectContent) {
       return KeyedSubtree(
-        key: ValueKey<String>('chatMessageTimelineStepShell:$isFirst:$isLast'),
+        key:
+            stableKey ??
+            ValueKey<String>('chatMessageTimelineStepShell:$isFirst:$isLast'),
         child: pressableHeader,
       );
     }
 
     return KeyedSubtree(
-      key: ValueKey<String>('chatMessageTimelineStepShell:$isFirst:$isLast'),
+      key:
+          stableKey ??
+          ValueKey<String>('chatMessageTimelineStepShell:$isFirst:$isLast'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           pressableHeader,
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              if (!isLast)
-                Positioned(
-                  left: _timelineLineX,
-                  top: 0,
-                  bottom: 0,
-                  child: SizedBox(
-                    key: const ValueKey('chatMessageTimelineContentLine'),
-                    width: 1,
-                    child: ColoredBox(color: fg.divider),
-                  ),
-                ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 300),
-                curve: const Cubic(0.2, 0.8, 0.2, 1),
-                alignment: Alignment.topLeft,
-                child: contentVisible
-                    ? Padding(
-                        padding: const EdgeInsets.only(
-                          left: _timelineIconColumnWidth + _timelineGap,
-                          top: 4,
-                          bottom: 8,
-                        ),
-                        child: content,
-                      )
-                    : const SizedBox.shrink(),
-              ),
-            ],
+          _TimelineStepBody(
+            isLast: isLast,
+            content: content,
+            visible: contentVisible,
+            bottomPadding: contentBottomPadding,
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Shared connector and inset for timeline content, including a group's
+/// persistent preview. Only the owner of changing content animates its height.
+class _TimelineStepBody extends StatelessWidget {
+  const _TimelineStepBody({
+    required this.isLast,
+    required this.content,
+    this.visible = true,
+    this.animate = true,
+    this.bottomPadding = 8,
+  });
+
+  final bool isLast, visible, animate;
+  final Widget? content;
+  final double bottomPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = visible
+        ? Padding(
+            padding: EdgeInsets.only(
+              left: _timelineIconColumnWidth + _timelineGap,
+              top: 4,
+              bottom: bottomPadding,
+            ),
+            child: content,
+          )
+        : const SizedBox.shrink();
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        if (!isLast)
+          Positioned(
+            left: _timelineLineX,
+            top: 0,
+            bottom: 0,
+            child: SizedBox(
+              key: const ValueKey('chatMessageTimelineContentLine'),
+              width: 1,
+              child: ColoredBox(
+                color: chatSurfaceForegroundPalette(context).divider,
+              ),
+            ),
+          ),
+        if (animate)
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: const Cubic(0.2, 0.8, 0.2, 1),
+            alignment: Alignment.topLeft,
+            child: body,
+          )
+        else
+          body,
+      ],
     );
   }
 }
@@ -4911,14 +5588,18 @@ class _TimelineLinePainter extends CustomPainter {
 
 class _ChainOfThoughtReasoningStep extends StatefulWidget {
   const _ChainOfThoughtReasoningStep({
+    required this.message,
     required this.step,
     required this.sourceIndex,
+    required this.sourceOrdinal,
     required this.isFirst,
     required this.isLast,
   });
 
+  final ChatMessage message;
   final ReasoningSegment step;
   final int sourceIndex;
+  final int sourceOrdinal;
   final bool isFirst;
   final bool isLast;
 
@@ -4928,10 +5609,21 @@ class _ChainOfThoughtReasoningStep extends StatefulWidget {
 }
 
 class _ChainOfThoughtReasoningStepState
-    extends State<_ChainOfThoughtReasoningStep> {
+    extends State<_ChainOfThoughtReasoningStep>
+    with _StoredTimelineState<_ChainOfThoughtReasoningStep> {
+  @override
+  Object get storageId => ('reasoning-expanded', widget.sourceOrdinal);
+  @override
+  Object saveViewState() => (_localExpanded,);
+  @override
+  void restoreViewState(Object value) {
+    _localExpanded = (value as (bool?,)).$1;
+  }
+
   final ValueNotifier<int> _elapsedTick = ValueNotifier<int>(0);
   Timer? _elapsedTimer;
   final ScrollController _scroll = ScrollController();
+  bool _followBottom = true;
   bool _hasOverflow = false;
   bool? _localExpanded;
 
@@ -4981,10 +5673,14 @@ class _ChainOfThoughtReasoningStepState
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_updateFollowBottom);
     _syncElapsedTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkOverflow();
-      if (widget.step.loading && _scroll.hasClients) {
+      if (mounted &&
+          widget.step.loading &&
+          _followBottom &&
+          _scroll.hasClients) {
         _scroll.jumpTo(_scroll.position.maxScrollExtent);
       }
     });
@@ -4994,14 +5690,25 @@ class _ChainOfThoughtReasoningStepState
   void didUpdateWidget(covariant _ChainOfThoughtReasoningStep oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncElapsedTimer();
-    if (widget.step.loading) {
+    if (widget.step.loading && widget.step.text != oldWidget.step.text) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) {
+        if (mounted &&
+            widget.step.loading &&
+            _followBottom &&
+            _scroll.hasClients) {
           _scroll.jumpTo(_scroll.position.maxScrollExtent);
         }
       });
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkOverflow());
+  }
+
+  void _updateFollowBottom() {
+    if (!_scroll.hasClients) return;
+    final position = _scroll.position;
+    _followBottom =
+        position.userScrollDirection != ScrollDirection.forward &&
+        position.extentAfter <= 1;
   }
 
   @override
@@ -5076,7 +5783,7 @@ class _ChainOfThoughtReasoningStepState
         );
       }
       return Text(
-        text.isNotEmpty ? text : '…',
+        text.isNotEmpty ? UnicodeSanitizer.sanitize(text) : '…',
         style: TextStyle(fontSize: 12.5, height: 1.32),
       );
     }
@@ -5111,12 +5818,20 @@ class _ChainOfThoughtReasoningStepState
             // Bouncing physics already declines drags when content fits.
             // Keeping it stable also retains ScrollPosition on overflow.
             physics: const BouncingScrollPhysics(),
-            child: SelectionArea(child: reasoningContent(display)),
+            child: AppSelectionArea(
+              message: widget.message,
+              quoteTextOnly: true,
+              child: reasoningContent(display),
+            ),
           ),
         ),
       );
     } else if (state == _ReasoningStepState.expanded) {
-      content = SelectionArea(child: reasoningContent(display));
+      content = AppSelectionArea(
+        message: widget.message,
+        quoteTextOnly: true,
+        child: reasoningContent(display),
+      );
     }
 
     return _TimelineStepShell(
@@ -5151,6 +5866,543 @@ class _ChainOfThoughtReasoningStepState
   }
 }
 
+class _ChainOfThoughtBrowserGroup extends StatefulWidget {
+  const _ChainOfThoughtBrowserGroup({
+    required this.tools,
+    required this.lite,
+    required this.conversationId,
+    required this.isFirst,
+    required this.isLast,
+    required this.hideImages,
+    required this.showPageCard,
+    required this.streaming,
+  });
+  final List<ToolUIPart> tools;
+  final bool lite, isFirst, isLast, hideImages, showPageCard, streaming;
+  final String conversationId;
+  @override
+  State<_ChainOfThoughtBrowserGroup> createState() =>
+      _ChainOfThoughtBrowserGroupState();
+}
+
+class _ChainOfThoughtBrowserGroupState
+    extends State<_ChainOfThoughtBrowserGroup>
+    with _StoredTimelineState<_ChainOfThoughtBrowserGroup> {
+  @override
+  Object get storageId => ('browser', widget.tools.first.id);
+  @override
+  Object saveViewState() => (_expanded, _userToggled, _showAll);
+  @override
+  void restoreViewState(Object value) {
+    final stored = value as (bool?, bool, bool);
+    _expanded = stored.$1;
+    _userToggled = stored.$2;
+    _showAll = stored.$3;
+    _keepSteps = _isExpanded;
+  }
+
+  List<BrowserToolAction> _actions = const [];
+  List<Object> _inputs = const [];
+  List<List<String>> _images = const [];
+  List<(BrowserToolAction?, String?)> _stepContexts = const [];
+  int _structureRevision = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _parse();
+    _syncAction(immediate: true);
+    _keepSteps = _isExpanded;
+  }
+
+  @override
+  void didUpdateWidget(_ChainOfThoughtBrowserGroup oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final changedGroup =
+        oldWidget.tools.first.id != widget.tools.first.id ||
+        oldWidget.conversationId != widget.conversationId;
+    if (changedGroup) {
+      _expanded = null;
+      _userToggled = false;
+      _showAll = false;
+    }
+    _parse();
+    _syncAction(immediate: changedGroup);
+    if (changedGroup || MediaQuery.disableAnimationsOf(context)) {
+      _keepSteps = _isExpanded;
+      if (!_keepSteps) _showAll = false;
+    } else if (_isExpanded) {
+      _keepSteps = true;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context) && !_isExpanded) {
+      _keepSteps = false;
+      _showAll = false;
+    }
+  }
+
+  void _parse() {
+    final actions = <BrowserToolAction>[];
+    final inputs = <Object>[];
+    final images = <List<String>>[];
+    final contexts = <(BrowserToolAction?, String?)>[];
+    var structureChanged = widget.tools.length != _actions.length;
+    BrowserToolAction? snapshot;
+    String? previousUrl;
+    for (var i = 0; i < widget.tools.length; i++) {
+      final tool = widget.tools[i];
+      if (i >= _actions.length || tool.id != _actions[i].id) {
+        structureChanged = true;
+      }
+      final input = (
+        tool.id,
+        tool.loading,
+        tool.content,
+        tool.metadata,
+        Object.hashAll(
+          tool.arguments.entries.map((entry) => (entry.key, entry.value)),
+        ),
+      );
+      inputs.add(input);
+      if (i < _inputs.length && input == _inputs[i]) {
+        actions.add(_actions[i]);
+        images.add(_images[i]);
+      } else {
+        actions.add(
+          BrowserToolAction(
+            id: tool.id,
+            arguments: tool.arguments,
+            content: tool.content,
+            metadata: tool.metadata,
+            loading: tool.loading,
+          ),
+        );
+        images.add(
+          parseToolResultImages(tool.content, metadata: tool.metadata).$2,
+        );
+      }
+      // A lazily mounted row still resolves refs and repeated-page icons
+      // against the complete preceding history, including folded rows.
+      contexts.add((snapshot, previousUrl));
+      final action = actions.last;
+      if (action.action == 'snapshot') snapshot = action;
+      if (action.hasPage && action.url.isNotEmpty) previousUrl = action.url;
+    }
+    if (structureChanged) _structureRevision++;
+    _actions = actions;
+    _inputs = inputs;
+    _images = images;
+    _stepContexts = contexts;
+  }
+
+  bool? _expanded;
+  bool _userToggled = false;
+  bool _showAll = false;
+  bool _keepSteps = false;
+
+  // Keep fast calls in one header. Coalesce updates instead of stacking
+  // transitions for steps that can finish within a single frame.
+  Timer? _actionTimer;
+  BrowserToolAction? _displayAction, _pendingAction;
+  bool get _executing =>
+      _actions.any((action) => action.loading) ||
+      (widget.streaming && widget.isLast && !widget.lite);
+
+  void _syncAction({bool immediate = false}) {
+    _pendingAction = _executing
+        ? _actions.lastWhere(
+            (action) => action.loading,
+            orElse: () => _actions.last,
+          )
+        : null;
+    if (immediate) {
+      _actionTimer?.cancel();
+      _actionTimer = null;
+      _displayAction = _pendingAction;
+    } else if (_displayAction?.id == _pendingAction?.id &&
+        _displayAction?.action == _pendingAction?.action) {
+      _actionTimer?.cancel();
+      _actionTimer = null;
+      _displayAction = _pendingAction;
+    } else {
+      _actionTimer ??= Timer(const Duration(milliseconds: 200), () {
+        _actionTimer = null;
+        setState(() {
+          _displayAction = _pendingAction;
+          if (_isExpanded) _keepSteps = true;
+        });
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _actionTimer?.cancel();
+    super.dispose();
+  }
+
+  bool get _isExpanded => _userToggled
+      ? _expanded!
+      : !widget.lite &&
+            !_executing &&
+            _displayAction == null &&
+            _actions.any((action) => action.failed);
+
+  void _finishStepsAnimation() {
+    if (!_isExpanded && _keepSteps) {
+      setState(() {
+        _keepSteps = false;
+        _showAll = false;
+      });
+    }
+  }
+
+  Widget _loadingIcon(Color color) =>
+      LoadingIndicator(height: 12, dotSize: 3, spacing: 2, color: color);
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = chatSurfaceForegroundPalette(context);
+    final cs = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context)!;
+    final running = _executing || _displayAction != null;
+    final failures = _actions.where((action) => action.failed).length;
+    final expanded = _isExpanded;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final tools = widget.tools;
+    final firstVisible =
+        _keepSteps &&
+            !_showAll &&
+            widget.tools.length > _browserStepsFoldThreshold
+        ? widget.tools.length - _browserStepsTail
+        : 0;
+    final pageCard = BrowserStepGroupBody(
+      actions: _actions,
+      conversationId: widget.conversationId,
+      lite: widget.lite,
+      running: running,
+    );
+    final header = _TimelineStepShell(
+      stableKey: ValueKey('browser-group-header-${widget.tools.first.id}'),
+      icon: running
+          ? _loadingIcon(fg.strong)
+          : Icon(Lucide.AppWindow, size: 16, color: fg.strong),
+      label: Semantics(
+        button: true,
+        expanded: expanded,
+        label: l.browserGroupToggleSemantics,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: ThinkingSheen(
+                enabled: running,
+                color: fg.strong,
+                child: AnimatedSwitcher(
+                  duration: reduceMotion
+                      ? Duration.zero
+                      : const Duration(milliseconds: 160),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  layoutBuilder: (current, previous) => Stack(
+                    alignment: AlignmentDirectional.centerStart,
+                    children: [...previous, if (current != null) current],
+                  ),
+                  child: Text(
+                    _displayAction?.label(l) ?? l.browserStepGroupTitle,
+                    key: ValueKey(_displayAction?.action ?? 'browser-idle'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: AppFontWeights.semibold,
+                      color: fg.strong,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                running
+                    ? l.browserStepCurrent(_actions.length)
+                    : l.browserStepCount(_actions.length),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: fg.medium),
+              ),
+            ),
+            if (failures > 0) ...[
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  l.browserActionFailedCount(failures),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: cs.error),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      isFirst: widget.isFirst,
+      isLast: widget.isLast && !_keepSteps,
+      onTap: () => setState(() {
+        _expanded = !expanded;
+        _userToggled = true;
+        // Keep the current rows (including revealed earlier steps) until
+        // closing ends, so reversal starts at the same visual position.
+        _keepSteps = !reduceMotion || _expanded!;
+        if (!_keepSteps) _showAll = false;
+      }),
+      indicator: Icon(
+        expanded ? Lucide.ChevronUp : Lucide.ChevronDown,
+        size: 16,
+        color: fg.muted,
+      ),
+    );
+    final steps = <Widget>[];
+    if (_keepSteps) {
+      if (firstVisible > 0) {
+        steps.add(
+          KeyedSubtree(
+            key: ValueKey('browser-steps-earlier-${widget.tools.first.id}'),
+            child: _TimelineStepShell(
+              isFirst: false,
+              isLast: false,
+              icon: Icon(Lucide.Ellipsis, size: 16, color: fg.muted),
+              label: Text(
+                l.browserStepsShowEarlier(firstVisible),
+                style: TextStyle(fontSize: 13, color: fg.muted),
+              ),
+              indicator: Icon(Lucide.ChevronDown, size: 16, color: fg.muted),
+              onTap: () => setState(() => _showAll = true),
+            ),
+          ),
+        );
+      }
+      steps.add(
+        ViewportBlockList(
+          itemCount: _actions.length - firstVisible,
+          structureToken: (_structureRevision, firstVisible),
+          itemKey: (i) => timelineToolStepKey(
+            id: tools[firstVisible + i].id,
+            sourceOrdinal: firstVisible + i,
+            toolName: LocalToolNames.browser,
+          ),
+          estimateExtent: (i, width) {
+            final index = firstVisible + i;
+            final hasImages = !widget.hideImages && _images[index].isNotEmpty;
+            return 36.0 +
+                (_actions[index].failed ? 40 : 0) +
+                (hasImages ? kBrowserStepImageHeight + 8 : 0);
+          },
+          itemBuilder: (context, i) {
+            final index = firstVisible + i;
+            final preceding = _stepContexts[index];
+            return _step(
+              context,
+              index,
+              snapshot: preceding.$1,
+              previousUrl: preceding.$2,
+            );
+          },
+        ),
+      );
+    }
+    final stepsContent = Align(
+      alignment: Alignment.topLeft,
+      heightFactor: expanded ? 1 : 0,
+      child: IgnorePointer(
+        ignoring: !expanded,
+        child: ExcludeSemantics(
+          excluding: !expanded,
+          child: TickerMode(
+            enabled: expanded,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: steps,
+            ),
+          ),
+        ),
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        header,
+        // Align reports the target height while retaining the laid-out rows.
+        // The outer clip follows AnimatedSize in both directions; the footer
+        // stays mounted and is pushed by that single animated extent.
+        ClipRect(
+          child: reduceMotion
+              ? stepsContent
+              : AnimatedSize(
+                  key: ValueKey(
+                    'browser-steps-motion-${widget.tools.first.id}',
+                  ),
+                  duration: const Duration(milliseconds: 300),
+                  curve: const Cubic(0.2, 0.8, 0.2, 1),
+                  alignment: Alignment.topLeft,
+                  clipBehavior: Clip.none,
+                  onEnd: _finishStepsAnimation,
+                  child: stepsContent,
+                ),
+        ),
+        if (widget.showPageCard)
+          _TimelineStepBody(
+            isLast: widget.isLast,
+            animate: false,
+            content: pageCard,
+          ),
+      ],
+    );
+  }
+
+  Widget _step(
+    BuildContext context,
+    int index, {
+    required BrowserToolAction? snapshot,
+    required String? previousUrl,
+  }) {
+    final part = widget.tools[index];
+    final action = _actions[index];
+    final fg = chatSurfaceForegroundPalette(context);
+    final cs = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context)!;
+    final tab = action.action == 'switch_tab'
+        ? BrowserService.instance.tabs
+              .where((tab) => tab.id == action.tabId)
+              .firstOrNull
+        : null;
+    final target = tab == null
+        ? action.target(l, [if (snapshot != null) snapshot])
+        : browserUrlLabel(tab.url, includePath: true);
+    final content = <Widget>[
+      if (action.failed)
+        Text(
+          browserErrorSummary(l, action.error),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            height: 1.4,
+            color: cs.error.withValues(alpha: .9),
+          ),
+        ),
+      if (!widget.hideImages && _images[index].isNotEmpty)
+        SizedBox(
+          key: ValueKey('tool-image-thumbnails:${part.id}'),
+          height: kBrowserStepImageHeight,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _images[index].length,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (_, imageIndex) {
+              final path = _images[index][imageIndex];
+              return GestureDetector(
+                onTap: () => _showToolFullImage(context, path),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: _buildToolImageFromPath(
+                    context,
+                    path,
+                    height: kBrowserStepImageHeight,
+                    maxLogicalWidth: kBrowserStepImageMaxWidth,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+    ];
+    return KeyedSubtree(
+      key: ValueKey('browser-step-${part.id}'),
+      child: _TimelineStepShell(
+        isFirst: false,
+        isLast: widget.isLast && index == widget.tools.length - 1,
+        icon: action.loading
+            ? _loadingIcon(fg.strong)
+            : Icon(
+                action.failed
+                    ? LucideIcons.circleAlert
+                    : browserActionIcon(action.action),
+                size: 16,
+                color: action.failed ? cs.error : fg.strong,
+              ),
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: ThinkingSheen(
+                enabled: action.loading,
+                color: fg.strong,
+                child: Text(
+                  action.failed
+                      ? l.browserActionFailed(action.label(l))
+                      : action.label(l),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: AppFontWeights.medium,
+                    color: action.failed ? cs.error : fg.strong,
+                  ),
+                ),
+              ),
+            ),
+            if (target != null && target.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  target,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: fg.muted),
+                ),
+              ),
+            ],
+          ],
+        ),
+        extra:
+            action.hasPage && action.url.isNotEmpty && action.url != previousUrl
+            ? BrowserFavicon(url: action.url, size: 14)
+            : null,
+        indicator: Icon(Lucide.ChevronRight, size: 16, color: fg.muted),
+        content: content.isEmpty
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var i = 0; i < content.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 8),
+                    content[i],
+                  ],
+                ],
+              ),
+        contentVisible: content.isNotEmpty,
+        // This row's body and the persistent preview share an 8dp gap.
+        contentBottomPadding: index == widget.tools.length - 1 ? 4 : 8,
+        expectContent: part.loading || content.isNotEmpty,
+        onTap: () => _showBrowserStepDetail(
+          context,
+          part,
+          conversationId: widget.conversationId,
+        ),
+      ),
+    );
+  }
+}
+
 class _ChainOfThoughtToolStep extends StatefulWidget {
   const _ChainOfThoughtToolStep({
     required this.part,
@@ -5169,7 +6421,17 @@ class _ChainOfThoughtToolStep extends StatefulWidget {
       _ChainOfThoughtToolStepState();
 }
 
-class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
+class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep>
+    with _StoredTimelineState<_ChainOfThoughtToolStep> {
+  @override
+  Object get storageId => ('ask-expanded', widget.part.id);
+  @override
+  Object saveViewState() => (_askUserExpanded,);
+  @override
+  void restoreViewState(Object value) {
+    _askUserExpanded = (value as (bool?,)).$1;
+  }
+
   bool get _isAskUser => widget.part.toolName == LocalToolNames.askUser;
   bool? _askUserExpanded;
 
@@ -5212,7 +6474,7 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
       content,
       metadata: metadata,
     );
-    _cleanText = cleanText;
+    _cleanText = UnicodeSanitizer.sanitize(cleanText);
     _imagePaths = paths;
   }
 
@@ -5335,14 +6597,16 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
         ? WeatherToolResult.tryParse(cleanText)
         : null;
     final String summaryText = approvalRequest != null
-        ? _argsSummary(approvalRequest.arguments)
+        ? UnicodeSanitizer.sanitize(_argsSummary(approvalRequest.arguments))
         : cleanText.isNotEmpty
         ? cleanText
-        : ((widget.part.arguments['query'] ??
-                      widget.part.arguments['url'] ??
-                      widget.part.arguments['text']) ??
-                  '')
-              .toString();
+        : UnicodeSanitizer.sanitize(
+            ((widget.part.arguments['query'] ??
+                        widget.part.arguments['url'] ??
+                        widget.part.arguments['text']) ??
+                    '')
+                .toString(),
+          );
     final bool shouldShowSummary = showToolResultSummary;
     final askUserExpanded = _askUserExpanded ?? true;
     final ttsText = widget.part.toolName == LocalToolNames.textToSpeech
@@ -5412,12 +6676,17 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
             ),
           )
         : null;
-    final Widget? content = (summaryContent == null && imageThumbnails == null)
+    final Widget? content =
+        (summaryContent == null &&
+            imageThumbnails == null &&
+            !(isPendingApproval && !isWorkspace))
         ? null
         : Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (summaryContent != null) summaryContent,
+              if (isPendingApproval && !isWorkspace)
+                SwitchToFullAccess(conversationId: widget.conversationId),
               if (summaryContent != null && imageThumbnails != null)
                 const SizedBox(height: 8),
               if (imageThumbnails != null) imageThumbnails,
@@ -5434,7 +6703,11 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
                 color: cs.error,
                 semanticLabel: AppLocalizations.of(context)!.toolApprovalDeny,
                 builder: (color) => Icon(Lucide.X, size: 14, color: color),
-                onTap: () => showToolApprovalDenyDialog(
+                onTap: () => approvalService.deny(
+                  approvalRequest.toolCallId,
+                  conversationId: approvalRequest.conversationId,
+                ),
+                onLongPress: () => showToolApprovalDenyDialog(
                   context,
                   approvalService,
                   approvalRequest.toolCallId,
@@ -5448,7 +6721,7 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
                 color: fg.accent,
                 semanticLabel: AppLocalizations.of(
                   context,
-                )!.toolApprovalApprove,
+                )!.workspaceToolApprove,
                 builder: (color) => Icon(Lucide.Check, size: 14, color: color),
                 onTap: () => approvalService.approve(
                   approvalRequest.toolCallId,
@@ -5462,6 +6735,8 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
             part: workspacePart,
             conversationId: widget.conversationId,
           )
+        : ToolPermissionResultStatus.isVisible(widget.part.metadata)
+        ? ToolPermissionResultStatus(metadata: widget.part.metadata)
         : null;
 
     return _TimelineStepShell(
@@ -5713,7 +6988,7 @@ class _ToolCallItemState extends State<_ToolCallItem> {
                     ],
                   ),
                 ),
-                if (isWorkspace && isPendingApproval) ...[
+                if (isPendingApproval) ...[
                   IosIconButton(
                     size: 14,
                     padding: const EdgeInsets.all(7),
@@ -5721,6 +6996,12 @@ class _ToolCallItemState extends State<_ToolCallItem> {
                     semanticLabel: l10n.toolApprovalDeny,
                     builder: (color) => Icon(Lucide.X, size: 14, color: color),
                     onTap: pendingToolCallId == null
+                        ? null
+                        : () => approvalService.deny(
+                            pendingToolCallId,
+                            conversationId: pendingRequest.conversationId,
+                          ),
+                    onLongPress: pendingToolCallId == null
                         ? null
                         : () => showToolApprovalDenyDialog(
                             context,
@@ -5734,7 +7015,7 @@ class _ToolCallItemState extends State<_ToolCallItem> {
                     size: 14,
                     padding: const EdgeInsets.all(7),
                     color: fg.accent,
-                    semanticLabel: l10n.toolApprovalApprove,
+                    semanticLabel: l10n.workspaceToolApprove,
                     builder: (color) =>
                         Icon(Lucide.Check, size: 14, color: color),
                     onTap: pendingToolCallId == null
@@ -5748,7 +7029,19 @@ class _ToolCallItemState extends State<_ToolCallItem> {
                   WorkspaceToolStatusText(
                     part: workspacePart,
                     conversationId: widget.conversationId,
-                  ),
+                  )
+                else if (ToolPermissionResultStatus.isVisible(
+                  widget.part.metadata,
+                ))
+                  ToolPermissionResultStatus(metadata: widget.part.metadata),
+                IosIconButton(
+                  size: 14,
+                  padding: const EdgeInsets.all(7),
+                  semanticLabel: l10n.mcpPageDetails,
+                  builder: (color) =>
+                      Icon(Lucide.ChevronRight, size: 14, color: color),
+                  onTap: () => _showDetail(context),
+                ),
               ],
             ),
             if (isWorkspace) ...[
@@ -5758,6 +7051,23 @@ class _ToolCallItemState extends State<_ToolCallItem> {
                 conversationId: widget.conversationId,
               ),
             ],
+            if (widget.part.toolName == LocalToolNames.browser)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  icon: const Icon(LucideIcons.appWindow, size: 16),
+                  label: Text(l10n.browserOpen),
+                  onPressed: () => openBrowserPage(
+                    context,
+                    conversationId: widget.conversationId,
+                    tabId: BrowserToolAction(
+                      id: widget.part.id,
+                      arguments: widget.part.arguments,
+                      metadata: widget.part.metadata,
+                    ).tabId,
+                  ),
+                ),
+              ),
             if (ttsText.isNotEmpty) ...[
               const SizedBox(height: 8),
               _buildTextToSpeechReplayRow(
@@ -5839,41 +7149,8 @@ class _ToolCallItemState extends State<_ToolCallItem> {
                 ),
               ),
             ],
-            // Approval action buttons
-            if (!isWorkspace &&
-                isPendingApproval &&
-                pendingToolCallId != null) ...[
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: ToolApprovalButton(
-                      label: l10n.toolApprovalDeny,
-                      color: cs.error,
-                      filled: false,
-                      onTap: () => _showDenyDialog(
-                        context,
-                        approvalService,
-                        pendingToolCallId,
-                        conversationId: pendingRequest.conversationId,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ToolApprovalButton(
-                      label: l10n.toolApprovalApprove,
-                      color: fg.accent,
-                      filled: true,
-                      onTap: () => approvalService.approve(
-                        pendingToolCallId,
-                        conversationId: pendingRequest.conversationId,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            if (!isWorkspace && isPendingApproval)
+              SwitchToFullAccess(conversationId: widget.conversationId),
             // Show image thumbnails if available
             if (hasImages) ...[
               const SizedBox(height: 10),
@@ -5901,47 +7178,6 @@ class _ToolCallItemState extends State<_ToolCallItem> {
             ],
           ],
         ),
-      ),
-    );
-  }
-
-  void _showDenyDialog(
-    BuildContext context,
-    ToolApprovalService approvalService,
-    String toolCallId, {
-    String? conversationId,
-  }) {
-    final l10n = AppLocalizations.of(context)!;
-    final reasonCtrl = TextEditingController();
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(l10n.toolApprovalDenyTitle),
-        content: TextField(
-          controller: reasonCtrl,
-          decoration: InputDecoration(hintText: l10n.toolApprovalDenyHint),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel),
-          ),
-          TextButton(
-            onPressed: () {
-              final reason = reasonCtrl.text.trim().isEmpty
-                  ? null
-                  : reasonCtrl.text.trim();
-              approvalService.deny(
-                toolCallId,
-                reason: reason,
-                conversationId: conversationId,
-              );
-              Navigator.of(ctx).pop();
-            },
-            child: Text(l10n.toolApprovalDeny),
-          ),
-        ],
       ),
     );
   }
@@ -6105,24 +7341,80 @@ class _AskUserInlineBody extends StatefulWidget {
   State<_AskUserInlineBody> createState() => _AskUserInlineBodyState();
 }
 
-class _AskUserInlineBodyState extends State<_AskUserInlineBody> {
-  final Map<String, String> _singleAnswers = <String, String>{};
-  final Map<String, Set<String>> _multiAnswers = <String, Set<String>>{};
+class _AskUserInlineBodyState extends State<_AskUserInlineBody>
+    with _StoredTimelineState<_AskUserInlineBody> {
+  @override
+  Object get storageId => ('ask-draft', widget.part.id);
+  @override
+  Object saveViewState() => (
+    Map<String, String>.of(_singleAnswers),
+    {
+      for (final entry in _multiAnswers.entries)
+        entry.key: Set<String>.of(entry.value),
+    },
+    {for (final entry in _textControllers.entries) entry.key: entry.value.text},
+    Set<String>.of(_skippedQuestions),
+  );
+  @override
+  void restoreViewState(Object value) {
+    if (_hasLiveDraft) return;
+    final stored =
+        value
+            as (
+              Map<String, String>,
+              Map<String, Set<String>>,
+              Map<String, String>,
+              Set<String>,
+            );
+    _singleAnswers.addAll(stored.$1);
+    _multiAnswers.addAll(stored.$2);
+    for (final entry in stored.$3.entries) {
+      _controllerFor(entry.key).text = entry.value;
+    }
+    _skippedQuestions.addAll(stored.$4);
+  }
+
+  AskUserDraft _draft = AskUserDraft();
+  bool _hasLiveDraft = false;
+  Map<String, String> get _singleAnswers => _draft.singleAnswers;
+  Map<String, Set<String>> get _multiAnswers => _draft.multiAnswers;
   final Map<String, TextEditingController> _textControllers =
       <String, TextEditingController>{};
-  final Set<String> _skippedQuestions = <String>{};
+  Set<String> get _skippedQuestions => _draft.skippedQuestions;
   bool _submittingRecovered = false;
 
   @override
+  void didChangeDependencies() {
+    final request = context
+        .read<AskUserInteractionService>()
+        .pendingRequests[widget.part.id];
+    _hasLiveDraft = request != null;
+    if (request != null && !identical(_draft, request.draft)) {
+      for (final controller in _textControllers.values) {
+        controller.dispose();
+      }
+      _textControllers.clear();
+      _draft = request.draft;
+    }
+    super.didChangeDependencies();
+  }
+
+  @override
   void dispose() {
+    storeViewState();
     for (final controller in _textControllers.values) {
       controller.dispose();
     }
+    _textControllers.clear();
     super.dispose();
   }
 
   TextEditingController _controllerFor(String id) {
-    return _textControllers.putIfAbsent(id, TextEditingController.new);
+    return _textControllers.putIfAbsent(id, () {
+      final controller = TextEditingController(text: _draft.freeText[id]);
+      controller.addListener(() => _draft.freeText[id] = controller.text);
+      return controller;
+    });
   }
 
   bool _hasAnswer(AskUserQuestion question) {
@@ -7098,7 +8390,7 @@ class _ReasoningSectionState extends State<_ReasoningSection> {
         );
       }
       return Text(
-        text.isNotEmpty ? text : '…',
+        text.isNotEmpty ? UnicodeSanitizer.sanitize(text) : '…',
         style: baseStyle,
         strutStyle: baseStrut,
         textHeightBehavior: baseTHB,
@@ -7155,7 +8447,7 @@ class _ReasoningSectionState extends State<_ReasoningSection> {
     }
 
     // Enable long-press text selection in reasoning body
-    body = SelectionArea(child: body);
+    body = AppSelectionArea(child: body);
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 300),
@@ -7177,5 +8469,50 @@ class _ReasoningSectionState extends State<_ReasoningSection> {
         ),
       ),
     );
+  }
+}
+
+/// Only small interaction state survives viewport recycling. Parsing results,
+/// timers, animation controllers and render trees remain owned by the view.
+mixin _StoredTimelineState<T extends StatefulWidget> on State<T> {
+  Object get storageId;
+  Object saveViewState();
+  void restoreViewState(Object value);
+  PageStorageBucket? _storage;
+  bool _restored = false;
+  bool _stored = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _storage = PageStorage.maybeOf(context);
+    if (!_restored) {
+      _restored = true;
+      final value = _storage?.readState(context, identifier: storageId);
+      if (value != null) restoreViewState(value);
+    }
+  }
+
+  void storeViewState() {
+    if (_stored) return;
+    _stored = true;
+    _storage?.writeState(context, saveViewState(), identifier: storageId);
+  }
+
+  @override
+  void deactivate() {
+    storeViewState();
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    _stored = false;
+  }
+
+  @override
+  void dispose() {
+    storeViewState();
+    super.dispose();
   }
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../../../../utils/mcp_structured_image.dart';
 import '../../../../models/token_usage.dart';
 import '../../stream/sse_event.dart';
 import '../../stream/stream_chunk.dart';
@@ -13,9 +14,7 @@ class GoogleFunctionCall {
     this.apiId,
     required this.name,
     required this.args,
-    this.result = '',
-    this.thoughtSigKey,
-    this.thoughtSigVal,
+    this.result,
     required this.part,
   });
 
@@ -23,9 +22,7 @@ class GoogleFunctionCall {
   final String? apiId;
   final String name;
   final Map<String, dynamic> args;
-  String result;
-  final String? thoughtSigKey;
-  final dynamic thoughtSigVal;
+  ClientToolResult? result;
   final Map<String, dynamic> part;
 }
 
@@ -60,7 +57,6 @@ class GoogleRemoteImage {
 /// Stateful Gemini / Vertex Gemini SSE decoder. One instance per HTTP response.
 class GoogleStreamDecoder implements StreamChunkDecoder {
   GoogleStreamDecoder({
-    this.isGemini3 = false,
     this.persistThoughtSigs = false,
     this.expectImage = false,
     this.receivedImage = false,
@@ -70,7 +66,6 @@ class GoogleStreamDecoder implements StreamChunkDecoder {
   }) : builtinCitations = citations ?? <Map<String, dynamic>>[],
        _ids = StreamChunkIds(sourceId);
 
-  final bool isGemini3;
   final bool persistThoughtSigs;
   final bool expectImage;
   final TokenUsage? initialUsage;
@@ -78,11 +73,9 @@ class GoogleStreamDecoder implements StreamChunkDecoder {
 
   bool receivedImage;
   TokenUsage? _round;
+  final Map<String, dynamic> _roundUsageFields = {};
 
-  TokenUsage? get usage {
-    if (_round == null) return initialUsage;
-    return (initialUsage ?? const TokenUsage()).merge(_round!);
-  }
+  TokenUsage? get usage => _round?.asSnapshot() ?? initialUsage;
 
   String? finishReason;
   bool _hasSeenPart = false;
@@ -257,14 +250,18 @@ class GoogleStreamDecoder implements StreamChunkDecoder {
   void _parseEvent(Map<String, dynamic> obj, List<StreamChunk> chunks) {
     final um = obj['usageMetadata'];
     if (um is Map<String, dynamic>) {
-      _round = (_round ?? const TokenUsage()).merge(
-        TokenUsage(
-          promptTokens: (um['promptTokenCount'] ?? 0) as int,
-          completionTokens: (um['candidatesTokenCount'] ?? 0) as int,
-          totalTokens: (um['totalTokenCount'] ?? 0) as int,
-        ),
-      );
-      chunks.add(Usage(usage!));
+      if (!um.containsKey('totalTokenCount') &&
+          (um.containsKey('promptTokenCount') ||
+              um.containsKey('candidatesTokenCount') ||
+              um.containsKey('thoughtsTokenCount'))) {
+        _roundUsageFields.remove('totalTokenCount');
+      }
+      _roundUsageFields.addAll(um);
+      final parsed = googleUsageFromMetadata(_roundUsageFields);
+      if (parsed.hasReportedTokens) {
+        _round = parsed;
+        chunks.add(Usage(usage!));
+      }
     }
 
     final candidates = obj['candidates'];
@@ -344,7 +341,7 @@ class GoogleStreamDecoder implements StreamChunkDecoder {
     final fc = p['functionCall'];
     final rawPart = Map<String, dynamic>.from(p);
 
-    if (isGemini3 && !thought && rawPart.isNotEmpty) {
+    if (!thought && rawPart.isNotEmpty) {
       roundModelParts.add(rawPart);
     }
 
@@ -460,24 +457,8 @@ class GoogleStreamDecoder implements StreamChunkDecoder {
       final apiId = fc['id']?.toString();
       final id = _effectiveToolCallId(apiId, 'call', _syntheticPartIndex++);
 
-      String? thoughtSigKey;
-      dynamic thoughtSigVal;
-      if (p.containsKey('thoughtSignature')) {
-        thoughtSigKey = 'thoughtSignature';
-        thoughtSigVal = p['thoughtSignature'];
-      } else if (p.containsKey('thought_signature')) {
-        thoughtSigKey = 'thought_signature';
-        thoughtSigVal = p['thought_signature'];
-      }
-
       final metadata = <String, dynamic>{
-        'google': <String, dynamic>{
-          'part': rawPart,
-          if (thoughtSigKey != null && thoughtSigVal != null)
-            'thoughtSigKey': thoughtSigKey,
-          if (thoughtSigKey != null && thoughtSigVal != null)
-            'thoughtSigVal': thoughtSigVal,
-        },
+        'google': <String, dynamic>{'part': rawPart},
       };
       functionCalls.add(
         GoogleFunctionCall(
@@ -485,8 +466,6 @@ class GoogleStreamDecoder implements StreamChunkDecoder {
           apiId: apiId,
           name: name,
           args: args,
-          thoughtSigKey: thoughtSigKey,
-          thoughtSigVal: thoughtSigVal,
           part: rawPart,
         ),
       );
@@ -578,4 +557,25 @@ bool _looksLikeImageStart(String data) {
     if (data.startsWith(prefix)) return true;
   }
   return false;
+}
+
+int? _readGoogleUsageInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
+  return null;
+}
+
+TokenUsage googleUsageFromMetadata(Map usageMetadata) {
+  final reasoning = _readGoogleUsageInt(usageMetadata['thoughtsTokenCount']);
+  final candidates = _readGoogleUsageInt(usageMetadata['candidatesTokenCount']);
+  return TokenUsage(
+    promptTokens: _readGoogleUsageInt(usageMetadata['promptTokenCount']),
+    completionTokens: candidates == null && reasoning == null
+        ? null
+        : (candidates ?? 0) + (reasoning ?? 0),
+    cachedTokens: _readGoogleUsageInt(usageMetadata['cachedContentTokenCount']),
+    reasoningTokens: reasoning,
+    totalTokens: _readGoogleUsageInt(usageMetadata['totalTokenCount']),
+  );
 }

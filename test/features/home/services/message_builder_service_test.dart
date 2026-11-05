@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,11 +16,8 @@ import 'package:Kelivo/core/services/chat/chat_service.dart';
 import 'package:Kelivo/core/services/api/providers/google/gemini_thought_signature.dart';
 import 'package:Kelivo/core/utils/multimodal_input_utils.dart';
 import 'package:Kelivo/features/home/services/message_builder_service.dart';
-import 'package:Kelivo/features/home/services/message_generation_service.dart';
-import 'package:Kelivo/features/home/controllers/generation_controller.dart';
-import 'package:Kelivo/features/home/controllers/stream_controller.dart'
-    as stream_ctrl;
 import 'package:Kelivo/features/home/services/ocr_service.dart';
+import 'package:Kelivo/utils/mcp_structured_image.dart';
 
 import '../../../support/business_test_harness.dart';
 
@@ -50,26 +50,6 @@ class _FakeChatService extends ChatService {
   }
 }
 
-class _StubGenerationController extends Fake implements GenerationController {}
-
-class _StubStreamController extends Fake
-    implements stream_ctrl.StreamController {}
-
-MessageGenerationService _messageGenerationServiceForAudioCheck() {
-  final chatService = _FakeChatService(const {});
-  final messageBuilderService = MessageBuilderService(
-    chatService: chatService,
-    contextProvider: _FakeBuildContext(),
-  );
-  return MessageGenerationService(
-    chatService: chatService,
-    messageBuilderService: messageBuilderService,
-    generationController: _StubGenerationController(),
-    streamController: _StubStreamController(),
-    contextProvider: _FakeBuildContext(),
-  );
-}
-
 ChatMessage _message({
   required String id,
   required String role,
@@ -90,6 +70,47 @@ ChatMessage _message({
 }
 
 void main() {
+  test(
+    'inlineLocalImages leaves all tool text and typed images to the provider',
+    () async {
+      final service = MessageBuilderService(
+        chatService: _FakeChatService(const {}),
+        contextProvider: _FakeBuildContext(),
+      );
+      final dir = await Directory.systemTemp.createTemp('image_error_history_');
+      addTearDown(() => dir.delete(recursive: true));
+      final file = File('${dir.path}/private.png');
+      await file.writeAsBytes([1, 2, 3]);
+      final error = jsonEncode({
+        'error': 'path_error',
+        'message': '/invalid/![](${file.path})',
+      });
+      final snapshot = '![](${file.path})';
+      final messages = <Map<String, dynamic>>[
+        {'role': 'tool', 'name': 'view_image', 'content': error},
+        {'role': 'tool', 'name': 'view_image', 'content': snapshot},
+        {
+          'role': 'tool',
+          'name': 'svguess__view_drawing',
+          'content': snapshot,
+          'metadata': {
+            kMcpResultMetadataKey: mcpResultMetadata([file.path]),
+          },
+        },
+        {'role': 'tool', 'name': 'view_drawing', 'content': error},
+        {'role': 'tool', 'name': 'shell', 'content': snapshot},
+        {'role': 'user', 'content': snapshot},
+      ];
+      await service.inlineLocalImages(messages);
+      expect(messages[0]['content'], error);
+      expect(messages[1]['content'], snapshot);
+      expect(messages[2]['content'], snapshot);
+      expect(messages[3]['content'], error);
+      expect(messages[4]['content'], snapshot);
+      expect(messages[5]['content'], contains('data:image/png;base64,AQID'));
+    },
+  );
+
   test('collapseVersions 按真实版本号选择消息', () {
     final service = MessageBuilderService(
       chatService: _FakeChatService(const {}),
@@ -541,44 +562,65 @@ void main() {
       );
       expect(refs.single.mime, 'audio/wav');
     });
+  });
 
+  group('MessageBuilderService.buildApiMessages', () {
     test(
-      'assistant audio media refs trip apiMessagesContainAudioAttachments',
+      'compression background survives M and is not a persisted user prompt',
       () {
-        final builder = MessageBuilderService(
-          chatService: _FakeChatService(const {}),
+        final service = MessageBuilderService(
+          chatService: _FakeChatService({}),
           contextProvider: _FakeBuildContext(),
         );
-        final apiMessages = builder.buildApiMessages(
+        final messages = service.buildApiMessages(
           messages: [
-            _message(id: 'u1', role: 'user', content: 'hi'),
-            ChatMessage(
-              id: 'a1',
-              role: 'assistant',
-              conversationId: 'c1',
-              parts: const [
-                TextPart('voice reply'),
-                FilePart(
-                  uri: '/tmp/assistant.wav',
-                  name: 'assistant.wav',
-                  mime: 'audio/wav',
-                ),
-              ],
+            _message(
+              id: 'context-summary:S',
+              role: 'user',
+              content: 'Actual edited summary',
             ),
+            _message(id: 'old', role: 'user', content: 'old raw history'),
+            _message(id: 'answer', role: 'assistant', content: 'old answer'),
+            _message(id: 'new', role: 'user', content: 'next input'),
           ],
-          versionSelections: const {},
-          currentConversation: Conversation(title: 'test'),
+          versionSelections: {},
+          currentConversation: Conversation(
+            id: 'conversation-1',
+            title: 'summary',
+          ),
         );
-        final generation = _messageGenerationServiceForAudioCheck();
+        expect(messages.first['role'], 'user');
         expect(
-          generation.apiMessagesContainAudioAttachments(apiMessages),
+          messages.first.containsKey(
+            MessageBuilderService.internalRevisionIdKey,
+          ),
+          isFalse,
+        );
+        service.applyContextLimit(
+          messages,
+          const Assistant(
+            id: 'a',
+            name: 'a',
+            limitContextMessages: true,
+            contextMessageSize: 1,
+          ),
+        );
+        expect(messages.map((m) => m['content']), [
+          'Actual edited summary',
+          'next input',
+        ]);
+        service.stripInternalRevisionIds(messages);
+        expect(
+          messages.every(
+            (m) =>
+                !m.containsKey('_contextSummary') &&
+                !m.containsKey(MessageBuilderService.internalRevisionIdKey),
+          ),
           isTrue,
         );
       },
     );
-  });
 
-  group('MessageBuilderService.buildApiMessages', () {
     test('有工具调用时会把 reasoning_content 回填到 assistant tool 消息', () {
       final service = MessageBuilderService(
         chatService: _FakeChatService({
@@ -674,6 +716,44 @@ void main() {
         );
       },
     );
+
+    for (final sourceProvider in ['vertex', 'gemini-paid', null]) {
+      test('Gemini history scopes signatures from $sourceProvider', () {
+        const signature =
+            '{"text":{"k":"thoughtSignature","v":"vertex-signature"}}';
+        const legacy = '<!-- gemini_thought_signatures:$signature -->';
+        final service = MessageBuilderService(
+          chatService: _FakeChatService({}),
+          contextProvider: _FakeBuildContext(),
+          providerArtifactLookup: (message, kind) =>
+              kind == geminiThoughtSignatureArtifactKind ? signature : null,
+        );
+        final original = ChatMessage(
+          id: 'signed',
+          conversationId: 'conversation-1',
+          role: 'assistant',
+          content: 'Earlier answer.$legacy',
+          providerId: sourceProvider,
+          modelId: 'gemini-4-argon',
+        );
+        final messages = service.buildApiMessages(
+          messages: [original],
+          versionSelections: {},
+          currentConversation: null,
+          googleProviderId: 'vertex',
+        );
+        final sameProvider = sourceProvider == 'vertex';
+        expect(
+          messages.single[multimodalInternalGeminiThoughtSignatureKey],
+          sameProvider ? signature : isNull,
+        );
+        expect(
+          messages.single['content'],
+          sameProvider ? original.content : 'Earlier answer.',
+        );
+        expect(original.content, 'Earlier answer.$legacy');
+      });
+    }
 
     test('a stored Gemini signature rides on the final assistant message', () {
       final service = MessageBuilderService(
@@ -1308,7 +1388,7 @@ void main() {
       expect(apiMessages.last['content'], 'message-1506');
     });
 
-    test('上下文裁剪不会保留缺少 tool result 的 assistant tool call', () {
+    test('上下文裁剪回退到工具轮次的 user 起点', () {
       final service = MessageBuilderService(
         chatService: _FakeChatService({}),
         contextProvider: _FakeBuildContext(),
@@ -1348,13 +1428,16 @@ void main() {
 
       expect(
         apiMessages.where((message) => message['tool_calls'] is List),
-        isEmpty,
+        hasLength(1),
       );
       expect(
         apiMessages.where((message) => message['role'] == 'tool'),
-        isEmpty,
+        hasLength(1),
       );
       expect(apiMessages.map((message) => message['content']).toList(), [
+        'before',
+        '\n\n',
+        'ok',
         'done',
         'next',
       ]);
@@ -1407,6 +1490,7 @@ void main() {
         hasLength(1),
       );
       expect(apiMessages.map((message) => message['role']).toList(), [
+        'user',
         'assistant',
         'tool',
         'assistant',

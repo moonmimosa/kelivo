@@ -99,7 +99,6 @@ class NianlunBinding {
     try {
       final history = await chat.loadSelectedContextMessages(
         conversation.id,
-        truncateIndex: conversation.truncateIndex,
         limit: NianlunClient.syncMessageLimit,
       );
       final payload = NianlunClient.buildWindowPayload(

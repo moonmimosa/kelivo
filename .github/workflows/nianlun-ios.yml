@@ -9,7 +9,7 @@ name: Nianlun iOS build (unsigned IPA)
 
 on:
   push:
-    branches: [nianlun]
+    branches: [nianlun-backup-import-fix]
     paths-ignore: ['**.md']
   workflow_dispatch:
 
@@ -114,3 +114,4 @@ jobs:
             装出来是独立的 App「Kelivo年轮」，不会覆盖正式的 Kelivo。
             commit ${{ github.sha }}
           files: Kelivo_ios_*.ipa
+

@@ -30,7 +30,7 @@ class SandboxPathResolver {
   static Future<void> init() async {
     try {
       // Use the platform-specific app data directory
-      final dir = await AppDirectories.getAppDataDirectory();
+      final dir = await AppDirectories.getContentDirectory();
       _docsDir = dir.path;
       try {
         final sup = await getApplicationSupportDirectory();
@@ -87,7 +87,7 @@ class SandboxPathResolver {
 
     // Determine root and tail to map. Prefer the same structured sandbox
     // markers as KelivoFileUri.tryEncodeLegacyAbsolutePath, then generic.
-    const subdirs = ['avatars', 'fonts', 'images', 'upload'];
+    const subdirs = ['avatars', 'fonts', 'images', 'upload', 'drafts'];
     String? tail; // starts with '/'
     String rootType = 'unknown';
 
@@ -181,7 +181,13 @@ class SandboxPathResolver {
     final String base = _basename(tail);
     for (final root in <String?>[docs, support]) {
       if (root == null || root.isEmpty) continue;
-      for (final sub in const ['avatars', 'fonts', 'images', 'upload']) {
+      for (final sub in const [
+        'avatars',
+        'fonts',
+        'images',
+        'upload',
+        'drafts',
+      ]) {
         final probe = '$root/$sub/$base';
         try {
           if (File(probe).existsSync()) {
@@ -410,6 +416,21 @@ class SandboxPathResolver {
       return path.replaceAll('\\', '/');
     }
     return path;
+  }
+
+  /// Key for de-duplicating media sources that may spell one file differently
+  /// (e.g. `kelivo-file:` URI vs. absolute path). Windows drive paths compare
+  /// with `/` separators and case-insensitively; everything else is [fix].
+  static String dedupeKey(String src) {
+    if (src.startsWith('http') || src.startsWith('data:')) return src;
+    String path;
+    try {
+      path = fix(src);
+    } catch (_) {
+      path = src;
+    }
+    if (!_looksLikeWindowsDrivePath(path)) return path;
+    return path.replaceAll('\\', '/').toLowerCase();
   }
 
   // Expose current dirs for diagnostic purposes

@@ -1,9 +1,15 @@
+import '../../../core/services/api/request_image_context.dart';
+import 'package:Kelivo/core/services/conversation_tool_permissions.dart';
+import 'package:Kelivo/core/models/tool_permission_mode.dart';
+import 'package:Kelivo/utils/mcp_structured_image.dart';
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/assistant.dart';
+import '../../../core/models/model_spec.dart';
+import '../../../core/models/reasoning_request.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/environment_provider.dart';
 import '../../../core/providers/mcp_provider.dart';
@@ -12,12 +18,17 @@ import '../../../core/providers/memory_provider_v2.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/tts_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
+import '../../../core/services/api/builtin_tools.dart' as native_tools;
 import '../../../core/services/api/json_schema_utils.dart';
+import '../../../core/services/model_spec/model_spec_resolver.dart';
 import '../../../core/services/chat/chat_service.dart';
+import '../../../core/services/browser/browser_tools_service.dart';
 import '../../../core/services/mcp/mcp_tool_service.dart';
 import '../../../core/services/memory/memory_pipeline.dart';
 import '../../../core/services/memory/memory_tools.dart';
 import '../../../core/services/search/search_tool_service.dart';
+import '../../../core/services/search/web_fetch_service.dart';
+import '../../../core/services/search/web_fetch_tool_service.dart';
 import '../../../core/services/tools/tool_schema_overrides.dart';
 import '../../../core/services/skills/skills_service.dart';
 import '../../../core/services/workspace/tool_run_registry.dart';
@@ -56,6 +67,8 @@ class ToolHandlerService {
         registry: contextProvider.read<ToolRunRegistry>(),
         runtimeProvider: contextProvider.read<WorkspaceRuntimeProvider>(),
         updateConversationExtras: chat.updateConversationExtras,
+        readPermissionState: ConversationToolPermissions.forChat(chat).read,
+        permissionChanges: chat,
         touchLastUsed: workspaces.touchLastUsed,
         onSkillRead: onSkillRead,
         onShellCompleted: onShellCompleted,
@@ -84,20 +97,18 @@ class ToolHandlerService {
     ProviderKind kind,
   ) {
     Map<String, dynamic> clone = _deepCloneMap(schema);
-    // Inline local $ref targets first: the allow-list below drops $ref/$defs,
-    // so an unresolved reference would reach the model as an empty schema and
-    // the whole nested object would silently vanish from the tool call.
+    // Inline local references before translating provider-specific schema fields.
     clone = resolveJsonSchemaRefs(
       clone,
-      expandAdditionalProperties: kind != ProviderKind.google,
+      preserveJsonSchema: kind != ProviderKind.google,
     );
-    clone = _sanitizeNode(clone, kind) as Map<String, dynamic>;
-    return clone;
+    if (kind != ProviderKind.google) return clone;
+    return _sanitizeGoogleNode(clone) as Map<String, dynamic>;
   }
 
-  static dynamic _sanitizeNode(dynamic node, ProviderKind kind) {
+  static dynamic _sanitizeGoogleNode(dynamic node) {
     if (node is List) {
-      return node.map((e) => _sanitizeNode(e, kind)).toList();
+      return node.map(_sanitizeGoogleNode).toList();
     }
     if (node is! Map) return node;
 
@@ -105,7 +116,7 @@ class ToolHandlerService {
     // Remove $schema as it's not needed for tool definitions
     m.remove(r'$schema');
 
-    // Convert 'const' to 'enum' for compatibility
+    // Google's native Schema does not have const.
     if (m.containsKey('const')) {
       final v = m['const'];
       if (v is String || v is num || v is bool) {
@@ -127,7 +138,7 @@ class ToolHandlerService {
       m.remove('const');
     }
 
-    // Flatten anyOf/oneOf/allOf to first variant for simplicity
+    // Keep Google's existing conversion to the native Schema subset.
     for (final key in [
       'anyOf',
       'oneOf',
@@ -136,9 +147,11 @@ class ToolHandlerService {
       'one_of',
       'all_of',
     ]) {
-      if (m[key] is List && (m[key] as List).isNotEmpty) {
-        final first = (m[key] as List).first;
-        final flattened = _sanitizeNode(first, kind);
+      final variants = m[key];
+      if (variants is! List) continue;
+      if (variants.isNotEmpty) {
+        final first = variants.first;
+        final flattened = _sanitizeGoogleNode(first);
         m.remove(key);
         if (flattened is Map<String, dynamic>) {
           m
@@ -150,59 +163,38 @@ class ToolHandlerService {
       }
     }
 
-    // Normalize type array to single type
+    // Google's native Schema needs a single type.
     final t = m['type'];
-    if (t is List && t.isNotEmpty) m['type'] = t.first.toString();
+    if (t is List && t.isNotEmpty) {
+      m['type'] = t.first.toString();
+    }
 
-    // Normalize items array to single item
+    // Keep Google's existing conversion of tuple-form items.
     final items = m['items'];
-    if (items is List && items.isNotEmpty) m['items'] = items.first;
-    if (m['items'] is Map) m['items'] = _sanitizeNode(m['items'], kind);
+    if (items is List && items.isNotEmpty) {
+      m['items'] = items.first;
+    }
+    if (m['items'] is Map || m['items'] is List) {
+      m['items'] = _sanitizeGoogleNode(m['items']);
+    }
 
-    // Recursively sanitize properties
     if (m['properties'] is Map) {
       final props = Map<String, dynamic>.from(m['properties']);
       final norm = <String, dynamic>{};
       props.forEach((k, v) {
-        norm[k] = _sanitizeNode(v, kind);
+        norm[k] = _sanitizeGoogleNode(v);
       });
       m['properties'] = norm;
     }
 
-    // additionalProperties can itself be a schema.
-    if (m['additionalProperties'] is Map) {
-      m['additionalProperties'] = _sanitizeNode(
-        m['additionalProperties'],
-        kind,
-      );
-    }
-
-    // Keep only allowed keys based on provider
-    Set<String> allowed;
-    switch (kind) {
-      case ProviderKind.google:
-        allowed = {
-          'type',
-          'description',
-          'properties',
-          'required',
-          'items',
-          'enum',
-        };
-        break;
-      case ProviderKind.openai:
-      case ProviderKind.claude:
-        allowed = {
-          'type',
-          'description',
-          'properties',
-          'required',
-          'items',
-          'enum',
-          'additionalProperties',
-        };
-        break;
-    }
+    const allowed = {
+      'type',
+      'description',
+      'properties',
+      'required',
+      'items',
+      'enum',
+    };
     m.removeWhere((k, v) => !allowed.contains(k));
     return m;
   }
@@ -230,11 +222,17 @@ class ToolHandlerService {
   // Tool Definitions Builder
   // ============================================================================
 
-  McpToolRouteSnapshot captureMcpToolRoutes(Assistant? assistant) {
+  McpToolRouteSnapshot captureMcpToolRoutes(
+    Assistant? assistant, {
+    String? conversationId,
+  }) {
     return contextProvider.read<McpToolService>().captureRoutesForAssistant(
       contextProvider.read<McpProvider>(),
       contextProvider.read<AssistantProvider>(),
       assistantId: assistant?.id,
+      conversation: conversationId == null
+          ? null
+          : contextProvider.read<ChatService>().getConversation(conversationId),
       reservedNames: BuiltInToolNames.all,
     );
   }
@@ -244,7 +242,7 @@ class ToolHandlerService {
   /// Returns a list of tool definitions including:
   /// - Search tool (if enabled and model supports tools)
   /// - Memory tools (if assistant has memory / past-recall enabled)
-  /// - MCP tools (from selected servers for the assistant)
+  /// - MCP tools (from the effective conversation or assistant selection)
   /// Whether the chat being generated is a throwaway one.
   ///
   /// Scheduled sends can target a different conversation from the visible one.
@@ -272,12 +270,52 @@ class ToolHandlerService {
   }) {
     final List<Map<String, dynamic>> toolDefs = <Map<String, dynamic>>[];
     final supportsTools = isToolModel(providerKey, modelId);
+    // Keep this candidate for images returned later in the tool loop.
+    // RequestImageContext gates its declaration on every outgoing request.
+    if (supportsTools &&
+        conversationId != null &&
+        ModelSpecResolver.instance
+            .spec(settings.getProviderConfig(providerKey), modelId)
+            .supportsImageInput) {
+      toolDefs.add({
+        'type': 'function',
+        'function': {
+          'name': 'read_chat_image',
+          'description':
+              'Read an image from this conversation using its image_id. Omit image_id to list available images, then use next_offset to list more. Reading adds a fresh observation without rewriting earlier history.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'image_id': {
+                'type': 'string',
+                'description':
+                    'The img_ identifier from an image placeholder or listing.',
+              },
+              'offset': {
+                'type': 'integer',
+                'minimum': 0,
+                'description': 'Offset for listing images; default 0.',
+              },
+            },
+
+            'additionalProperties': false,
+          },
+        },
+      });
+    }
 
     // Search tool (skip when Gemini built-in search is active)
     if (assistant?.searchEnabled == true &&
         !hasBuiltInSearch &&
         supportsTools) {
       toolDefs.add(SearchToolService.getToolDefinition());
+      if (settings.webFetchMode != WebFetchMode.off &&
+          !native_tools.BuiltInToolsHelper.isBuiltInFetchEnabled(
+            cfg: settings.getProviderConfig(providerKey),
+            modelId: modelId,
+          )) {
+        toolDefs.add(WebFetchToolService.getToolDefinition());
+      }
     }
 
     // Memory tools (§10.1)
@@ -304,6 +342,11 @@ class ToolHandlerService {
       LocalToolsService.buildToolDefinitions(
         assistant: assistant,
         supportsTools: supportsTools,
+      ).where(
+        (definition) =>
+            (definition['function'] as Map)['name'] !=
+                BrowserToolsService.toolName ||
+            conversationId != null,
       ),
     );
 
@@ -314,11 +357,24 @@ class ToolHandlerService {
       providerKey: providerKey,
       supportsTools: supportsTools,
       mcpRouteSnapshot: mcpRouteSnapshot,
+      conversationId: conversationId,
     );
     toolDefs.addAll(mcpTools);
 
     if (supportsTools && workspaceContext != null) {
-      toolDefs.addAll(_workspaceTools().buildToolDefinitions(workspaceContext));
+      final canImageInput = ModelSpecResolver.instance
+          .spec(settings.getProviderConfig(providerKey), modelId)
+          .input
+          .contains(Modality.image);
+      toolDefs.addAll(
+        _workspaceTools()
+            .buildToolDefinitions(workspaceContext)
+            .where(
+              (definition) =>
+                  canImageInput ||
+                  (definition['function'] as Map)['name'] != 'view_image',
+            ),
+      );
     }
 
     final overrides = settings.toolSchemaOverrides;
@@ -333,6 +389,7 @@ class ToolHandlerService {
     required String providerKey,
     required bool supportsTools,
     McpToolRouteSnapshot? mcpRouteSnapshot,
+    String? conversationId,
   }) {
     if (!supportsTools) return [];
 
@@ -342,6 +399,9 @@ class ToolHandlerService {
       mcp,
       contextProvider.read<AssistantProvider>(),
       assistant?.id,
+      conversation: conversationId == null
+          ? null
+          : contextProvider.read<ChatService>().getConversation(conversationId),
       routeSnapshot: mcpRouteSnapshot,
       reservedNames: BuiltInToolNames.all,
     );
@@ -411,12 +471,19 @@ class ToolHandlerService {
     // Capture AssistantProvider reference before async gap to avoid
     // use_build_context_synchronously warning
     final assistantProvider = contextProvider.read<AssistantProvider>();
+    ChatService? permissionChat;
+    try {
+      permissionChat = contextProvider.read<ChatService>();
+    } catch (_) {}
     final routes =
         mcpRouteSnapshot ??
         toolSvc.captureRoutesForAssistant(
           mcp,
           assistantProvider,
           assistantId: assistant?.id,
+          conversation: conversationId == null
+              ? null
+              : permissionChat?.getConversation(conversationId),
           reservedNames: BuiltInToolNames.all,
         );
 
@@ -426,39 +493,66 @@ class ToolHandlerService {
       return '${name}_${DateTime.now().microsecondsSinceEpoch}';
     }
 
+    ToolCallPermission permissionFor(String name, String? toolCallId) =>
+        ToolCallPermission(
+          toolName: name,
+          toolCallId: approvalIdFor(name, toolCallId),
+          conversationId: conversationId,
+          assistantId: assistant?.id,
+          approvals: approvalService,
+          stateChanges: permissionChat,
+          readState: () => permissionChat != null && conversationId != null
+              ? ConversationToolPermissions.forChat(
+                  permissionChat,
+                ).read(conversationId)
+              : ToolPermissionState(assistantId: assistant?.id),
+        );
     Future<Object?> approveAndExecuteMcp(
       String name,
-      Map<String, dynamic> args, {
-      String? toolCallId,
-    }) async {
-      if (approvalService != null &&
-          toolSvc.toolNeedsApprovalForAssistant(
-            mcp,
-            assistantProvider,
-            assistantId: assistant?.id,
-            toolName: name,
-            routeSnapshot: routes,
-            reservedNames: BuiltInToolNames.all,
-          )) {
-        final result = await approvalService.requestApproval(
-          toolCallId: approvalIdFor(name, toolCallId),
+      Map<String, dynamic> args,
+      ToolCallPermission permission,
+    ) async {
+      void checkEnabled() {
+        if (!toolSvc.isToolEnabledForAssistant(
+          mcp,
+          assistantProvider,
+          assistantId: assistant?.id,
+          conversation: conversationId == null
+              ? null
+              : permissionChat?.getConversation(conversationId),
           toolName: name,
-          arguments: args,
-          conversationId: conversationId,
-        );
-        if (!result.approved) {
-          return _toolError(
-            error: 'approval_denied',
-            message: result.denyReason ?? 'User denied the tool call',
-            tool: name,
+          routeSnapshot: routes,
+        )) {
+          throw const ToolPermissionException(
+            'tool_disabled',
+            'This MCP tool is disabled',
           );
         }
       }
 
+      checkEnabled();
+      await permission.authorize(
+        needed: toolSvc.toolNeedsApprovalForAssistant(
+          mcp,
+          assistantProvider,
+          assistantId: assistant?.id,
+          conversation: conversationId == null
+              ? null
+              : permissionChat?.getConversation(conversationId),
+          toolName: name,
+          routeSnapshot: routes,
+          reservedNames: BuiltInToolNames.all,
+        ),
+        arguments: args,
+      );
+      checkEnabled();
       return toolSvc.callToolForAssistant(
         mcp,
         assistantProvider,
         assistantId: assistant?.id,
+        conversation: conversationId == null
+            ? null
+            : permissionChat?.getConversation(conversationId),
         toolName: name,
         arguments: args,
         routeSnapshot: routes,
@@ -469,146 +563,217 @@ class ToolHandlerService {
     final workspaceTools = workspaceContext == null ? null : _workspaceTools();
 
     return (name, args, {toolCallId}) async {
-      try {
-        if (workspaceContext != null &&
-            workspaceTools != null &&
-            WorkspaceToolsService.toolNames.contains(name)) {
-          return await workspaceTools.handle(
-            workspaceContext,
-            name,
-            args,
-            toolCallId: toolCallId ?? '',
-            approvalService: approvalService,
-            conversationId: conversationId,
-          );
-        }
-
-        if (routes.containsExposedName(name)) {
-          return await approveAndExecuteMcp(name, args, toolCallId: toolCallId);
-        }
-
-        // Search tool
-        if (name == SearchToolService.toolName &&
-            assistant?.searchEnabled == true) {
-          final q = (args['query'] ?? '').toString();
-          return await SearchToolService.executeSearch(q, settings);
-        }
-
-        // Memory tools
-        final memoryResult = await _handleMemoryToolCall(
-          name,
-          args,
-          assistant,
-          conversationId: conversationId,
-        );
-        if (memoryResult != null) {
-          return memoryResult;
-        }
-
-        // Creating calendar events or changing reminders modifies user data,
-        // so those tools always require explicit user approval first.
-        if (LocalToolNames.requiresUserApproval.contains(name) &&
-            assistant != null &&
-            assistant.localToolIds.contains(name) &&
-            approvalService != null) {
-          final approval = await approvalService.requestApproval(
-            toolCallId: approvalIdFor(name, toolCallId),
-            toolName: name,
-            arguments: args,
-            conversationId: conversationId,
-          );
-          if (!approval.approved) {
-            return _toolError(
-              error: 'approval_denied',
-              message: approval.denyReason ?? 'User denied the tool call',
-              tool: name,
-            );
-          }
-        }
-
-        // Re-read phone-control permission on every call so disabling it also
-        // stops a tool loop that was built with an older assistant snapshot.
-        if (name == LocalToolNames.phoneControl) {
-          final current = assistant == null
-              ? null
-              : assistantProvider.getById(assistant.id);
-          if (current == null || !current.localToolIds.contains(name)) {
-            return _toolError(
-              error: 'permission_denied',
-              message: 'Phone control is disabled for this assistant.',
-              tool: name,
-            );
-          }
-        }
-
-        // Local tools
-        final localResult = await LocalToolsService.tryHandleToolCall(
-          name,
-          args,
-          assistant,
-          onSpeakText: (text) async {
-            final tts = contextProvider.read<TtsProvider>();
-            if (!tts.isAvailable) {
-              throw StateError('Text-to-speech is unavailable.');
+      final permission = permissionFor(name, toolCallId);
+      Future<Object?> execute() async {
+        try {
+          if (name == 'read_chat_image') {
+            final imageContext = RequestImageContext.current;
+            final chat = permissionChat;
+            if (imageContext == null ||
+                conversationId == null ||
+                chat == null) {
+              return const ClientToolResult(
+                'Image is unavailable in the current conversation context.',
+              );
             }
-            unawaited(
-              tts.speak(text).catchError((Object error, StackTrace stack) {
-                FlutterError.reportError(
-                  FlutterErrorDetails(
-                    exception: error,
-                    stack: stack,
-                    library: 'Kelivo local tools',
-                    context: ErrorDescription('while playing text-to-speech'),
-                  ),
-                );
-              }),
+            if (!(await chat.imageContextSettings(
+              conversationId,
+            )).allowRecall) {
+              return const ClientToolResult(
+                'Image recall is disabled for this conversation. Ask the user to attach the image again if needed.',
+              );
+            }
+            final allowed = await chat.imageContextHistory(
+              conversationId,
+              throughMessageId: imageContext.targetMessageId,
             );
-          },
-        );
-        if (localResult != null) {
-          return localResult;
-        }
-
-        if (name == LocalToolNames.askUser &&
-            assistant != null &&
-            assistant.localToolIds.contains(LocalToolNames.askUser)) {
-          if (askUserService == null) {
-            return _toolError(
-              error: 'ask_user_unavailable',
-              message: 'Ask user interaction service is unavailable.',
-              tool: name,
+            return imageContext.readImage(
+              (args['image_id'] ?? '').toString(),
+              allowedMessages: allowed.map((m) => m.id).toSet(),
+              offset: args['offset'] is int ? args['offset'] as int : 0,
             );
           }
-          try {
-            final result = await askUserService.requestAnswer(
-              toolCallId: (toolCallId?.trim().isNotEmpty == true)
-                  ? toolCallId!.trim()
-                  : '${name}_${DateTime.now().microsecondsSinceEpoch}',
-              arguments: args,
+          if (name == BrowserToolsService.toolName) {
+            final current = assistant == null
+                ? null
+                : assistantProvider.getById(assistant.id);
+            if (current == null ||
+                !current.localToolIds.contains(LocalToolNames.browser) ||
+                conversationId == null) {
+              return _toolError(
+                error: 'permission_denied',
+                message:
+                    'Browser control is disabled for this assistant or conversation.',
+                tool: name,
+              );
+            }
+            return await BrowserToolsService().handle(
+              conversationId,
+              args,
+              capturePreview: settings.showBrowserPageCards,
+              temporary: _isTemporaryConversation(conversationId),
+            );
+          }
+          if (workspaceContext != null &&
+              workspaceTools != null &&
+              WorkspaceToolsService.toolNames.contains(name)) {
+            return await workspaceTools.handle(
+              workspaceContext,
+              name,
+              args,
+              toolCallId: toolCallId ?? '',
+              approvalService: approvalService,
               conversationId: conversationId,
             );
-            return result.toJsonString();
-          } on AskUserInvalidRequestException catch (e) {
-            return _toolError(
-              error: 'invalid_ask_user_request',
-              message: e.message,
-              tool: name,
-            );
           }
-        }
 
-        return await approveAndExecuteMcp(name, args, toolCallId: toolCallId);
-      } catch (e) {
-        // Catch unexpected exceptions and return error JSON to LLM
-        // This prevents tool failures from terminating the chat flow
-        return _toolError(
-          error: 'execution_error',
-          message: e.toString(),
-          tool: name,
-          instruction:
-              'The tool execution failed unexpectedly. You may try again with different parameters or inform the user about the issue.',
-        );
+          if (routes.containsExposedName(name)) {
+            return await approveAndExecuteMcp(name, args, permission);
+          }
+
+          // Search tool
+          if (name == SearchToolService.toolName &&
+              assistant?.searchEnabled == true) {
+            final q = (args['query'] ?? '').toString();
+            return await SearchToolService.executeSearch(q, settings);
+          }
+          if (name == WebFetchToolService.toolName &&
+              assistant?.searchEnabled == true) {
+            return await WebFetchToolService.executeFetch(args, settings);
+          }
+
+          // Memory tools
+          final memoryResult = await _handleMemoryToolCall(
+            name,
+            args,
+            assistant,
+            conversationId: conversationId,
+          );
+          if (memoryResult != null) {
+            return memoryResult;
+          }
+
+          // Full access skips only the ordinary execution prompt.
+          if (LocalToolNames.requiresUserApproval.contains(name)) {
+            final current = assistant == null
+                ? null
+                : assistantProvider.getById(assistant.id);
+            if (current == null || !current.localToolIds.contains(name)) {
+              return _toolError(
+                error: 'tool_disabled',
+                message: 'This tool is disabled',
+                tool: name,
+              );
+            }
+            await permission.authorize(needed: true, arguments: args);
+            final latest = assistantProvider.getById(current.id);
+            if (latest == null || !latest.localToolIds.contains(name)) {
+              return _toolError(
+                error: 'tool_disabled',
+                message: 'This tool is disabled',
+                tool: name,
+              );
+            }
+          }
+
+          // Re-read phone-control permission on every call so disabling it also
+          // stops a tool loop that was built with an older assistant snapshot.
+          if (name == LocalToolNames.phoneControl) {
+            final current = assistant == null
+                ? null
+                : assistantProvider.getById(assistant.id);
+            if (current == null || !current.localToolIds.contains(name)) {
+              return _toolError(
+                error: 'permission_denied',
+                message: 'Phone control is disabled for this assistant.',
+                tool: name,
+              );
+            }
+          }
+
+          // Local tools
+          final localResult = await LocalToolsService.tryHandleToolCall(
+            name,
+            args,
+            assistant,
+            onSpeakText: (text) async {
+              final tts = contextProvider.read<TtsProvider>();
+              if (!tts.isAvailable) {
+                throw StateError('Text-to-speech is unavailable.');
+              }
+              unawaited(
+                tts.speak(text).catchError((Object error, StackTrace stack) {
+                  FlutterError.reportError(
+                    FlutterErrorDetails(
+                      exception: error,
+                      stack: stack,
+                      library: 'Kelivo local tools',
+                      context: ErrorDescription('while playing text-to-speech'),
+                    ),
+                  );
+                }),
+              );
+            },
+          );
+          if (localResult != null) {
+            return localResult;
+          }
+
+          if (name == LocalToolNames.askUser &&
+              assistant != null &&
+              assistant.localToolIds.contains(LocalToolNames.askUser)) {
+            if (askUserService == null) {
+              return _toolError(
+                error: 'ask_user_unavailable',
+                message: 'Ask user interaction service is unavailable.',
+                tool: name,
+              );
+            }
+            try {
+              final result = await askUserService.requestAnswer(
+                toolCallId: (toolCallId?.trim().isNotEmpty == true)
+                    ? toolCallId!.trim()
+                    : '${name}_${DateTime.now().microsecondsSinceEpoch}',
+                arguments: args,
+                conversationId: conversationId,
+              );
+              return result.toJsonString();
+            } on AskUserInvalidRequestException catch (e) {
+              return _toolError(
+                error: 'invalid_ask_user_request',
+                message: e.message,
+                tool: name,
+              );
+            }
+          }
+
+          return await approveAndExecuteMcp(name, args, permission);
+        } on ToolPermissionException catch (e) {
+          permission.byFullAccess = false;
+          return ClientToolResult(
+            _toolError(error: e.code, message: e.message, tool: name),
+            metadata: {'toolPermissionError': e.code},
+          );
+        } catch (e) {
+          // Catch unexpected exceptions and return error JSON to LLM
+          // This prevents tool failures from terminating the chat flow
+          return _toolError(
+            error: 'execution_error',
+            message: e.toString(),
+            tool: name,
+            instruction:
+                'The tool execution failed unexpectedly. You may try again with different parameters or inform the user about the issue.',
+          );
+        }
       }
+
+      final result = await execute();
+      if (!permission.byFullAccess) return result;
+      final client = ClientToolResult.fromHandler(result);
+      return ClientToolResult(
+        client.content,
+        metadata: {...?client.metadata, 'toolPermission': 'fullAccess'},
+      );
     };
   }
 
@@ -650,15 +815,15 @@ class ToolHandlerService {
     final mdlId = settings.memoryModelId;
     if (provKey != null && mdlId != null) {
       final cfg = settings.getProviderConfig(provKey);
-      final budget = settings.memoryModelThinkingEnabled
-          ? (assistant.thinkingBudget ?? settings.thinkingBudget)
-          : 0;
+      final reasoning = settings.memoryModelThinkingEnabled
+          ? (assistant.reasoning ?? ReasoningRequest.auto)
+          : ReasoningRequest.off;
       memoryLlmCall = (prompt) => ChatApiService.generateText(
         conversationId: conversationId,
         config: cfg,
         modelId: mdlId,
         prompt: prompt,
-        thinkingBudget: budget,
+        reasoning: reasoning,
       );
     }
 

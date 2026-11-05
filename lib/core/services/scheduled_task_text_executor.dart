@@ -12,6 +12,7 @@ import '../models/scheduled_task_payload.dart';
 import '../providers/assistant_provider.dart';
 import '../providers/settings_provider.dart';
 import 'api/chat_api_service.dart';
+import 'api/reasoning/reasoning_selection.dart';
 import 'chat/chat_service.dart';
 import 'scheduled_task_preparation.dart';
 import 'scheduled_tasks_service.dart';
@@ -78,7 +79,7 @@ class ScheduledTaskTextExecutor implements ScheduledTaskPreparation {
       throw StateError('model_missing');
     }
     final config = settings.getProviderConfig(providerKey);
-    if (!config.enabled || !config.models.contains(modelId)) {
+    if (!config.enabled || !config.isModelEnabled(modelId)) {
       throw StateError('model_missing');
     }
     return (providerKey: providerKey, modelId: modelId);
@@ -167,15 +168,21 @@ class ScheduledTaskTextExecutor implements ScheduledTaskPreparation {
     final requestId = '${run.id}:prepare:${run.prepareAttempts}';
     cancellation.onCancel = () async => ChatApiService.cancelRequest(requestId);
     cancellation.check();
+    final config = settings.getProviderConfig(model.providerKey);
     final response = await ChatApiService.generateMessage(
-      config: settings.getProviderConfig(model.providerKey),
+      config: config,
       modelId: model.modelId,
       messages: messages,
       requestId: requestId,
       conversationId: conversation?.id,
       temperature: assistant.temperature,
       topP: assistant.topP,
-      thinkingBudget: assistant.thinkingBudget,
+      reasoning: selectReasoningRequest(
+        settings: settings,
+        config: config,
+        modelId: model.modelId,
+        assistant: assistant,
+      ),
       maxTokens: (assistant.maxTokens ?? 4096).clamp(1, 4096),
       extraHeaders: {
         for (final h in assistant.customHeaders) h['name']!: h['value']!,

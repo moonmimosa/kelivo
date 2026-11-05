@@ -88,11 +88,15 @@ class _DisplaySettingsBody extends StatelessWidget {
                   _RowDivider(),
                   _ToggleRowShowTokenStats(),
                   _RowDivider(),
+                  _ToggleRowShowTotalTokens(),
+                  _RowDivider(),
                   _ToggleRowShowThinkingCards(),
                   _RowDivider(),
                   _ToggleRowShowToolCards(),
                   _RowDivider(),
                   _ToggleRowShowProducedFiles(),
+                  _RowDivider(),
+                  _ToggleRowShowReasoningLevelBadge(),
                 ],
               ),
               const SizedBox(height: 16),
@@ -103,11 +107,16 @@ class _DisplaySettingsBody extends StatelessWidget {
                   _RowDivider(),
                   _ToggleRowMathRendering(),
                   _RowDivider(),
+                  _ToggleRowLegacyInlineCodeStyle(),
+                  _RowDivider(),
+                  _ToggleRowLegacyCodeBlockStyle(),
+                  _RowDivider(),
                   _ToggleRowUserMarkdown(),
                   _RowDivider(),
                   _ToggleRowReasoningMarkdown(),
                   _RowDivider(),
                   _ToggleRowAssistantMarkdown(),
+                  _ToggleRowGenUiHeader(),
                   _RowDivider(),
                   _AutoCollapseCodeBlocksSection(),
                 ],
@@ -125,6 +134,8 @@ class _DisplaySettingsBody extends StatelessWidget {
                   _ToggleRowShowToolResultSummary(),
                   _RowDivider(),
                   _ToggleRowHideToolResultImages(),
+                  _RowDivider(),
+                  _ToggleRowShowBrowserPageCards(),
                   _RowDivider(),
                   _ToggleRowInsertSuggestionOnly(),
                   _RowDivider(),
@@ -164,9 +175,7 @@ class _DisplaySettingsBody extends StatelessWidget {
               _SettingsCard(
                 title: l10n.displaySettingsPageOtherSettingsTitle,
                 children: const [
-                  _ToggleRowAutoScrollEnabled(),
-                  _RowDivider(),
-                  _AutoScrollDelayRow(),
+                  _AutoScrollRow(),
                   _RowDivider(),
                   _BackgroundMaskRow(),
                   _RowDivider(),
@@ -432,35 +441,22 @@ class _LabeledRow extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final row = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.max,
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              // Match other settings row labels (14, normal, slightly dimmed)
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: AppFontWeights.regular,
-                color: cs.onSurface.withValues(alpha: 0.9),
-                decoration: TextDecoration.none,
-              ),
-            ),
+      child: DesktopLabeledControl(
+        label: Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: AppFontWeights.regular,
+            color: cs.onSurface.withValues(alpha: 0.9),
+            decoration: TextDecoration.none,
           ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerRight,
-                child: trailing,
-              ),
-            ),
-          ),
-        ],
+        ),
+        controlWidth: 400,
+        control: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerRight,
+          child: trailing,
+        ),
       ),
     );
     return SettingsSearchTarget.wrap(context, label, row);
@@ -2458,6 +2454,21 @@ class _ToggleRowShowTokenStats extends StatelessWidget {
   }
 }
 
+class _ToggleRowShowTotalTokens extends StatelessWidget {
+  const _ToggleRowShowTotalTokens();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsPageShowTotalTokensTitle,
+      tip: l10n.displaySettingsPageShowTotalTokensSubtitle,
+      value: sp.showTotalTokens,
+      onChanged: (v) => context.read<SettingsProvider>().setShowTotalTokens(v),
+    );
+  }
+}
+
 class _ToggleRowShowProviderInCapsule extends StatelessWidget {
   const _ToggleRowShowProviderInCapsule();
   @override
@@ -2503,6 +2514,38 @@ class _ToggleRowMathRendering extends StatelessWidget {
   }
 }
 
+class _ToggleRowLegacyInlineCodeStyle extends StatelessWidget {
+  const _ToggleRowLegacyInlineCodeStyle();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsPageUseLegacyInlineCodeStyleTitle,
+      tip: l10n.displaySettingsPageUseLegacyInlineCodeStyleSubtitle,
+      value: sp.useLegacyInlineCodeStyle,
+      onChanged: (value) =>
+          context.read<SettingsProvider>().setUseLegacyInlineCodeStyle(value),
+    );
+  }
+}
+
+class _ToggleRowLegacyCodeBlockStyle extends StatelessWidget {
+  const _ToggleRowLegacyCodeBlockStyle();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsPageUseLegacyCodeBlockStyleTitle,
+      tip: l10n.displaySettingsPageUseLegacyCodeBlockStyleSubtitle,
+      value: sp.useLegacyCodeBlockStyle,
+      onChanged: (value) =>
+          context.read<SettingsProvider>().setUseLegacyCodeBlockStyle(value),
+    );
+  }
+}
+
 class _ToggleRowUserMarkdown extends StatelessWidget {
   const _ToggleRowUserMarkdown();
   @override
@@ -2544,6 +2587,22 @@ class _ToggleRowAssistantMarkdown extends StatelessWidget {
       value: sp.enableAssistantMarkdown,
       onChanged: (v) =>
           context.read<SettingsProvider>().setEnableAssistantMarkdown(v),
+    );
+  }
+}
+
+class _ToggleRowGenUiHeader extends StatelessWidget {
+  const _ToggleRowGenUiHeader();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsShowGenUiHeader,
+      tip: l10n.displaySettingsShowGenUiHeaderSubtitle,
+      value: sp.showGenUiHeader,
+      onChanged: (value) =>
+          context.read<SettingsProvider>().setShowGenUiHeader(value),
     );
   }
 }
@@ -2610,6 +2669,22 @@ class _ToggleRowShowProducedFiles extends StatelessWidget {
   }
 }
 
+class _ToggleRowShowReasoningLevelBadge extends StatelessWidget {
+  const _ToggleRowShowReasoningLevelBadge();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsShowReasoningLevelBadge,
+      tip: l10n.displaySettingsShowReasoningLevelBadgeSubtitle,
+      value: sp.showReasoningLevelBadge,
+      onChanged: (v) =>
+          context.read<SettingsProvider>().setShowReasoningLevelBadge(v),
+    );
+  }
+}
+
 class _ToggleRowAutoCollapseThinking extends StatelessWidget {
   const _ToggleRowAutoCollapseThinking();
   @override
@@ -2666,6 +2741,21 @@ class _ToggleRowHideToolResultImages extends StatelessWidget {
       value: sp.hideToolResultImages,
       onChanged: (v) =>
           context.read<SettingsProvider>().setHideToolResultImages(v),
+    );
+  }
+}
+
+class _ToggleRowShowBrowserPageCards extends StatelessWidget {
+  const _ToggleRowShowBrowserPageCards();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsPageShowBrowserPageCardsTitle,
+      value: sp.showBrowserPageCards,
+      onChanged: (v) =>
+          context.read<SettingsProvider>().setShowBrowserPageCards(v),
     );
   }
 }
@@ -2748,17 +2838,32 @@ class _ToggleRowEditAssistantKeepThinkingToolCards extends StatelessWidget {
   }
 }
 
-class _ToggleRowAutoScrollEnabled extends StatelessWidget {
-  const _ToggleRowAutoScrollEnabled();
+class _AutoScrollRow extends StatelessWidget {
+  const _AutoScrollRow();
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final sp = context.watch<SettingsProvider>();
-    return _ToggleRow(
-      label: l10n.displaySettingsPageAutoScrollEnableTitle,
-      value: sp.autoScrollEnabled,
-      onChanged: (v) =>
-          context.read<SettingsProvider>().setAutoScrollEnabled(v),
+    return Tooltip(
+      message: l10n.displaySettingsPageAutoScrollSubtitle,
+      child: _LabeledRow(
+        label: l10n.displaySettingsPageAutoScrollEnableTitle,
+        trailing: DesktopSelectDropdown<bool>(
+          value: sp.autoScrollEnabled,
+          options: [
+            DesktopSelectOption(
+              value: true,
+              label: l10n.displaySettingsPageAutoScrollEnabledLabel,
+            ),
+            DesktopSelectOption(
+              value: false,
+              label: l10n.displaySettingsPageAutoScrollDisabledLabel,
+            ),
+          ],
+          onSelected: (enabled) =>
+              context.read<SettingsProvider>().setAutoScrollEnabled(enabled),
+        ),
+      ),
     );
   }
 }
@@ -2790,7 +2895,7 @@ class _ToggleRowRequestLogging extends StatelessWidget {
             child: InkWell(
               borderRadius: BorderRadius.circular(6),
               onTap: () async {
-                final dir = await AppDirectories.getAppDataDirectory();
+                final dir = await AppDirectories.getContentDirectory();
                 final logsDir = Directory('${dir.path}/logs');
                 if (!await logsDir.exists()) {
                   await logsDir.create(recursive: true);
@@ -2847,7 +2952,7 @@ class _ToggleRowFlutterLogging extends StatelessWidget {
             child: InkWell(
               borderRadius: BorderRadius.circular(6),
               onTap: () async {
-                final dir = await AppDirectories.getAppDataDirectory();
+                final dir = await AppDirectories.getContentDirectory();
                 final logsDir = Directory('${dir.path}/logs');
                 if (!await logsDir.exists()) {
                   await logsDir.create(recursive: true);
@@ -3164,7 +3269,7 @@ class _ToggleRow extends StatelessWidget {
               ],
             ),
           ),
-          if (tip != null) MemoryTipIcon(message: tip!),
+          if (tip != null) TipIcon(message: tip!),
           const SizedBox(width: 12),
           IosSwitch(value: value, onChanged: onChanged),
         ],
@@ -3286,79 +3391,6 @@ class _CollapseLongUserMessageCharsRowState
 }
 
 // --- Others: inputs ---
-class _AutoScrollDelayRow extends StatefulWidget {
-  const _AutoScrollDelayRow();
-  @override
-  State<_AutoScrollDelayRow> createState() => _AutoScrollDelayRowState();
-}
-
-class _AutoScrollDelayRowState extends State<_AutoScrollDelayRow> {
-  late final TextEditingController _controller;
-  @override
-  void initState() {
-    super.initState();
-    final seconds = context.read<SettingsProvider>().autoScrollIdleSeconds;
-    _controller = TextEditingController(text: '${seconds.round()}');
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _commit(String text) {
-    final v = text.trim();
-    final n = int.tryParse(v);
-    if (n == null) return;
-    final clamped = n.clamp(2, 64);
-    context.read<SettingsProvider>().setAutoScrollIdleSeconds(clamped);
-    _controller.text = '$clamped';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final sp = context.watch<SettingsProvider>();
-    final enabled = sp.autoScrollEnabled;
-    return _LabeledRow(
-      label: l10n.displaySettingsPageAutoScrollIdleTitle,
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IntrinsicWidth(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 36, maxWidth: 72),
-              child: IgnorePointer(
-                ignoring: !enabled,
-                child: Opacity(
-                  opacity: enabled ? 1.0 : 0.5,
-                  child: _BorderInput(
-                    controller: _controller,
-                    onSubmitted: _commit,
-                    onFocusLost: _commit,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            's',
-            style: TextStyle(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: enabled ? 0.7 : 0.35),
-              fontSize: 14,
-              decoration: TextDecoration.none,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _AutoCollapseCodeBlockLinesRow extends StatefulWidget {
   const _AutoCollapseCodeBlockLinesRow();
   @override

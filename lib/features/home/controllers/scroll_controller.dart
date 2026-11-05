@@ -162,11 +162,21 @@ class _IndexedScrollActivity extends ScrollActivity {
 
   final VoidCallback _onCanceled;
   bool _finishing = false;
+  bool _disposed = false;
 
   void finish() {
     if (_finishing) return;
     _finishing = true;
     delegate.goIdle();
+  }
+
+  void finishAfterDetach() {
+    // A GlobalKey move can transfer this activity to a new ScrollPosition.
+    // Wait until the subtree is active before dispatching scroll-end; a real
+    // removal disposes the activity before this callback instead.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_disposed) finish();
+    });
   }
 
   @override
@@ -180,6 +190,7 @@ class _IndexedScrollActivity extends ScrollActivity {
 
   @override
   void dispose() {
+    _disposed = true;
     if (!_finishing) _onCanceled();
     super.dispose();
   }
@@ -202,7 +213,6 @@ class ChatScrollController {
     required this._scrollController,
     required this._onStateChanged,
     required this._getAutoScrollEnabled,
-    required this._getAutoScrollIdleSeconds,
     this._getTopRevealInset,
     this.isGenerating,
   }) {
@@ -215,7 +225,7 @@ class ChatScrollController {
     // Wire auto-follow callback for zero-lag bottom pinning
     if (scrollController is ChatAutoFollowScrollController) {
       scrollController.shouldAutoFollow = () =>
-          _getAutoScrollEnabled() &&
+          _checkAutoScrollEnabled() &&
           (isGenerating?.call() ?? false) &&
           _autoStickToBottom &&
           !_isUserScrolling &&
@@ -226,7 +236,6 @@ class ChatScrollController {
   final ScrollController _scrollController;
   final VoidCallback _onStateChanged;
   final bool Function() _getAutoScrollEnabled;
-  final int Function() _getAutoScrollIdleSeconds;
   final double Function()? _getTopRevealInset;
   final bool Function()? isGenerating;
 
@@ -249,16 +258,13 @@ class ChatScrollController {
   Timer? _navButtonsHideTimer;
   static const int _navButtonsHideDelayMs = 2000;
 
-  /// Whether the user is actively scrolling.
+  /// Whether user scrolling has paused follow until they return to the bottom.
   bool _isUserScrolling = false;
   bool get isUserScrolling => _isUserScrolling;
 
   /// Whether auto-scroll should stick to bottom.
   bool _autoStickToBottom = true;
   bool get autoStickToBottom => _autoStickToBottom;
-
-  /// Timer for detecting end of user scroll.
-  Timer? _userScrollTimer;
 
   /// Live held bottom pin (see [stickToBottomAfterGeneration]).
   Timer? _bottomHoldTimer;
@@ -302,6 +308,21 @@ class ChatScrollController {
   // Scroll State Detection
   // ============================================================================
 
+  bool _checkAutoScrollEnabled() {
+    final enabled = _getAutoScrollEnabled();
+    // Content can grow without changing pixels while follow is off. Track
+    // detachment so re-enabling does not pull the reader down. Layout changes
+    // may briefly attach both the old and new positions to this controller.
+    if (!enabled &&
+        _scrollController.positions.any(
+          (position) =>
+              position.hasContentDimensions && position.extentAfter > 1,
+        )) {
+      _autoStickToBottom = false;
+    }
+    return enabled;
+  }
+
   /// Check if the scroll position is near the bottom.
   bool isNearBottom([double tolerance = _autoScrollSnapTolerance]) {
     if (!_scrollController.hasClients) return true;
@@ -315,7 +336,7 @@ class ChatScrollController {
   /// This must be requested before the new viewport dimensions are laid out;
   /// otherwise the old pixel offset paints one frame above the new bottom.
   bool pinBottomDuringViewportResizeIfNeeded() {
-    if (!isNearBottom(24)) return false;
+    if (_isUserScrolling || !isNearBottom(24)) return false;
     positionAtBottomOnNextLayout();
     return true;
   }
@@ -328,39 +349,26 @@ class ChatScrollController {
     return _scrollController.position.maxScrollExtent >= minExtent;
   }
 
-  /// Refresh auto-stick-to-bottom state based on current position.
-  void refreshAutoStickToBottom() {
-    try {
-      final nearBottom = isNearBottom();
-      if (!nearBottom) {
-        _autoStickToBottom = false;
-      } else if (!_isUserScrolling) {
-        final enabled = _getAutoScrollEnabled();
-        if (enabled || _autoStickToBottom) {
-          _autoStickToBottom = true;
-        }
-      }
-    } catch (_) {}
-  }
-
   /// Handle scroll controller changes (called from scroll listener).
   void _onScrollControllerChanged() {
     try {
       if (!_scrollController.hasClients) return;
-      final autoScrollEnabled = _getAutoScrollEnabled();
-
-      // Only show when not near bottom
+      final direction = _scrollController.position.userScrollDirection;
+      // Button visibility may tolerate a small gap, but following must not
+      // resume inside that band after the user has scrolled up.
       final atBottom = isNearBottom(24);
-      if (!atBottom) {
+      if (direction == ScrollDirection.forward) {
+        // A wheel event resets its direction before the next layout, so a
+        // pending bottom pin must be canceled before the frame is scheduled.
+        _cancelProgrammaticNavigation();
+        _isUserScrolling = true;
         _autoStickToBottom = false;
-      } else if (_isUserScrolling) {
-        // User actively scrolled back to bottom → re-engage auto-follow
-        // immediately so streaming content keeps pinning without waiting
-        // for the idle timer.
+      } else if (!isNearBottom(1)) {
+        _autoStickToBottom = false;
+      } else {
+        // Keyboard scrolling can arrive with an idle userScrollDirection.
+        // Resume only at the actual bottom, never within the button's band.
         _isUserScrolling = false;
-        _userScrollTimer?.cancel();
-        _autoStickToBottom = true;
-      } else if (autoScrollEnabled || _autoStickToBottom) {
         _autoStickToBottom = true;
       }
       final shouldShow = !atBottom;
@@ -375,21 +383,19 @@ class ChatScrollController {
   /// Programmatic position changes must never call this method.
   void handleUserScrollIntent() {
     _cancelProgrammaticNavigation();
-    _isUserScrolling = true;
-    _autoStickToBottom = false;
+    final returnedToBottom =
+        _scrollController.hasClients &&
+        isNearBottom(1) &&
+        _scrollController.position.userScrollDirection !=
+            ScrollDirection.forward;
+    _isUserScrolling = !returnedToBottom;
+    _autoStickToBottom = returnedToBottom;
     _lastJumpUserMessageId = null;
     if (!_showNavButtons) {
       _showNavButtons = true;
       _onStateChanged();
     }
     _resetNavButtonsHideTimer();
-    _userScrollTimer?.cancel();
-    final secs = _getAutoScrollIdleSeconds();
-    _userScrollTimer = Timer(Duration(seconds: secs), () {
-      _isUserScrolling = false;
-      refreshAutoStickToBottom();
-      _onStateChanged();
-    });
   }
 
   /// Reset the auto-hide timer for navigation buttons.
@@ -438,7 +444,6 @@ class ChatScrollController {
     _cancelProgrammaticNavigation(stopDrivenScroll: true);
     _lastJumpUserMessageId = null;
     _isUserScrolling = false;
-    _userScrollTimer?.cancel();
     _autoStickToBottom = true;
     final controller = _scrollController;
     if (controller is! ChatAutoFollowScrollController) {
@@ -460,7 +465,6 @@ class ChatScrollController {
     _cancelProgrammaticNavigation(stopDrivenScroll: true);
     _lastJumpUserMessageId = null;
     _isUserScrolling = false;
-    _userScrollTimer?.cancel();
     _autoStickToBottom = true;
 
     for (var pass = 0; pass < 3; pass++) {
@@ -488,7 +492,6 @@ class ChatScrollController {
   void forceScrollToBottom({bool animate = true}) {
     _cancelProgrammaticNavigation(stopDrivenScroll: true);
     _isUserScrolling = false;
-    _userScrollTimer?.cancel();
     _lastJumpUserMessageId = null;
     revealNavButtons();
     _autoStickToBottom = true;
@@ -501,7 +504,6 @@ class ChatScrollController {
     Duration postSwitchDelay = const Duration(milliseconds: 220),
   }) {
     _isUserScrolling = false;
-    _userScrollTimer?.cancel();
     final request = ++_deferredBottomRequest;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (request == _deferredBottomRequest) {
@@ -588,8 +590,9 @@ class ChatScrollController {
   /// bottom-pinning during layout automatically. This method is kept as a
   /// lightweight safety-net for edge cases (e.g. plain ScrollController).
   void autoScrollToBottomIfNeeded() {
-    final enabled = _getAutoScrollEnabled();
-    if (!enabled || !_autoStickToBottom) return;
+    if (!_checkAutoScrollEnabled() || !_autoStickToBottom || _isUserScrolling) {
+      return;
+    }
     // With the custom ScrollPosition, bottom-pinning happens inside
     // applyContentDimensions (during layout, before paint). No post-frame
     // callback needed for the streaming path.
@@ -1083,9 +1086,9 @@ class ChatScrollController {
 
   void _cancelIndexedNavigationForDetach() {
     _indexedNavigationRequest++;
-    // ScrollPosition disposal owns the activity at this point. Calling
-    // goIdle from ListController.onDetached would dispatch a scroll-end
-    // notification through an already deactivated widget tree.
+    // Do not dispatch through a deactivated tree. If this is a reparent,
+    // finish the transferred activity once its ScrollPosition is active.
+    _indexedScrollActivity?.finishAfterDetach();
     _indexedScrollActivity = null;
     final animationController = _indexedAnimationController;
     _indexedAnimationController = null;
@@ -1145,7 +1148,6 @@ class ChatScrollController {
   /// Reset user scrolling state (e.g., when force scrolling).
   void resetUserScrolling() {
     _isUserScrolling = false;
-    _userScrollTimer?.cancel();
   }
 
   // ============================================================================
@@ -1155,7 +1157,6 @@ class ChatScrollController {
   /// Dispose of resources.
   void dispose() {
     _scrollController.removeListener(_onScrollControllerChanged);
-    _userScrollTimer?.cancel();
     _navButtonsHideTimer?.cancel();
     _bottomHoldTimer?.cancel();
     _cancelIndexedNavigation();

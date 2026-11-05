@@ -1,9 +1,13 @@
 import 'dart:io';
 
+import '../../models/backup_scope.dart';
+
 import 'backup_cancel_token.dart';
 import 'backup_task_progress.dart';
 import 'restore_bundle_staging.dart';
 import 'restore_receipt.dart';
+import 'restore_durability.dart';
+import 'restore_workspace_lock.dart';
 
 final class PreparedRestoreBundle {
   const PreparedRestoreBundle({
@@ -45,11 +49,16 @@ final class RestoreBundlePreparation {
     required bool bundleIncludesFiles,
     required bool restoreChats,
     required bool restoreFiles,
+    BackupScope scope = const BackupScope(),
     bool useExistingLocalAttachments = false,
+    Directory? filesDirectory,
     DateTime? createdAtUtc,
     Map<String, dynamic>? validatedSettings,
     BackupProgressSink? onProgress,
     BackupCancelToken? cancelToken,
+    RestoreDurability? durability,
+    Future<void> Function()? beforePublish,
+    void Function()? onUnpublishedDiscarded,
   }) async {
     StagedRestoreBundle? staged;
     var publicationStarted = false;
@@ -74,11 +83,14 @@ final class RestoreBundlePreparation {
         extractedDirectory: extractedDirectory,
         includeChats: selectedChats,
         includeFiles: selectedFiles,
+        scope: scope,
         sourceIncludesChats: bundleIncludesChats,
         sourceIncludesFiles: bundleIncludesFiles,
         sourceManifestSha256: sourceManifestSha256,
+        durability: durability,
         validatedSettings: validatedSettings,
         useExistingLocalAttachments: useExistingLocalAttachments,
+        filesDirectory: filesDirectory,
         onProgress: onProgress,
         cancelToken: cancelToken,
       );
@@ -91,6 +103,7 @@ final class RestoreBundlePreparation {
       final store = RestoreReceiptStore(
         appDataDirectory: appDataDirectory,
         runId: staged.runId,
+        durability: durability,
       );
       if (cancelToken?.isCancelled == true) {
         throw const BackupCancelledException();
@@ -103,6 +116,7 @@ final class RestoreBundlePreparation {
           cancellable: false,
         ),
       );
+      await beforePublish?.call();
       publicationStarted = true;
       await store.publish(receipt);
       final published = await store.readLatest();
@@ -116,12 +130,30 @@ final class RestoreBundlePreparation {
         receipt: published,
       );
     } catch (error, stackTrace) {
-      if (staged != null && !publicationStarted) {
+      if (staged != null) {
         try {
-          await RestoreBundleStaging.discardUnpublished(
-            appDataDirectory: appDataDirectory,
-            runId: staged.runId,
-          );
+          final runId = staged.runId;
+          final bool discarded;
+          if (!publicationStarted) {
+            await RestoreBundleStaging.discardUnpublished(
+              appDataDirectory: appDataDirectory,
+              runId: runId,
+            );
+            discarded = true;
+          } else {
+            // rename can succeed before a later fsync/read/claim error. A
+            // final receipt or uncertain topology must keep live writers fenced.
+            final lock = RestoreWorkspaceLock(
+              appDataDirectory: appDataDirectory,
+              durability: durability,
+            );
+            discarded = await lock.synchronized(
+              () => lock.discardStrictlyUnpublishedRunWhileWorkspaceLocked(
+                expectedRunId: runId,
+              ),
+            );
+          }
+          if (discarded) onUnpublishedDiscarded?.call();
         } catch (cleanupError, cleanupStackTrace) {
           Error.throwWithStackTrace(
             _RestorePreparationCleanupException(error, cleanupError),

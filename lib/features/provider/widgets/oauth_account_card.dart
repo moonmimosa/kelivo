@@ -230,6 +230,14 @@ class _UsageBar extends StatelessWidget {
         ? l.oauthExtraUsage
         : window.id == 'monthly'
         ? l.oauthMonthly
+        : window.id == 'limit_month_total'
+        ? l.oauthMonthlyTotal
+        : window.id == 'limit_month_code'
+        ? l.oauthMonthlyCode
+        : window.id == 'spend-cap'
+        ? l.oauthSpendCap
+        : window.id == 'on-demand'
+        ? l.oauthOnDemand
         : window.id == 'total'
         ? l.oauthTotal
         : duration?.inDays == 7
@@ -249,9 +257,27 @@ class _UsageBar extends StatelessWidget {
         ? windowLabel
         : (duration == null ? window.label! : '${window.label} · $windowLabel');
     final percent = window.usedPercent;
-    final color = percent != null && percent >= 90
+    final color = !window.advisory && percent != null && percent >= 90
         ? context.appColors.warning
         : cs.primary;
+    final value = window.unit == 'usd'
+        ? '\$${window.used?.toStringAsFixed(2) ?? '—'}${window.limit == null ? '' : ' / \$${window.limit!.toStringAsFixed(2)}'}'
+        : percent == null
+        ? null
+        : '${percent.toStringAsFixed(0)}%';
+    var usedText = value == null ? '—' : l.oauthUsedValue(value);
+    if (window.unit == 'credits') {
+      if (window.used != null ||
+          (window.limit != null && window.remaining == null)) {
+        final amount =
+            '${window.used?.toStringAsFixed(2) ?? '—'}${window.limit == null ? '' : ' / ${window.limit!.toStringAsFixed(2)}'}';
+        usedText = l.oauthUsedValue(l.oauthCreditsValue(amount));
+      } else if (window.remaining != null) {
+        usedText = l.oauthRemainingValue(
+          l.oauthCreditsValue(window.remaining!.toStringAsFixed(2)),
+        );
+      }
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -266,20 +292,22 @@ class _UsageBar extends StatelessWidget {
                 ),
               ),
             ),
-            Text(
-              window.unit == 'usd'
-                  ? '\$${window.used?.toStringAsFixed(2) ?? '—'}${window.limit == null ? '' : ' / \$${window.limit!.toStringAsFixed(2)}'}'
-                  : percent == null
-                  ? '—'
-                  : '${percent.toStringAsFixed(0)}%',
-              style: TextStyle(fontSize: 12, fontWeight: AppFontWeights.medium),
+            Flexible(
+              child: Text(
+                usedText,
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: AppFontWeights.medium,
+                ),
+              ),
             ),
           ],
         ),
         const SizedBox(height: 7),
         if (percent != null)
           Semantics(
-            label: '$label ${percent.toStringAsFixed(0)}%',
+            label: '$label $usedText',
             child: ClipRRect(
               borderRadius: BorderRadius.circular(99),
               child: SizedBox(
@@ -300,6 +328,17 @@ class _UsageBar extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+            ),
+          ),
+        if (window.advisory)
+          Padding(
+            padding: const EdgeInsets.only(top: 7),
+            child: Text(
+              l.oauthQuotaAdvisory,
+              style: TextStyle(
+                fontSize: 11,
+                color: cs.onSurface.withValues(alpha: .5),
               ),
             ),
           ),

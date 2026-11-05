@@ -15,6 +15,7 @@ import 'dart:ui' as ui;
 
 import 'package:Kelivo/core/models/message_part.dart';
 import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
 import 'package:Kelivo/features/provider/pages/oauth_provider_detail_page.dart';
 import 'package:Kelivo/features/provider/widgets/add_provider_sheet.dart';
 import 'package:Kelivo/features/provider/widgets/oauth_account_card.dart';
@@ -290,7 +291,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        expect(find.text('62%'), findsOneWidget);
+        expect(find.text('Used 62%'), findsOneWidget);
         expect(find.text('Available usage resets: 2'), findsOneWidget);
         expect(find.text('—'), findsOneWidget);
         await tester.tap(find.text('Usage details'));
@@ -674,7 +675,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('account@example.com'), findsOneWidget);
-      expect(find.text('62%'), findsOneWidget);
+      expect(find.text('Used 62%'), findsOneWidget);
       expect(find.text('API Key'), findsNothing);
       expect(tester.takeException(), isNull);
       await snapshot(
@@ -700,8 +701,11 @@ void main() {
       modelOverrides: {
         'grok-4.20-0309-reasoning': {
           'oauthProtocol': 'openai',
-          'oauthThinkingMode': 'forced',
           'abilities': ['tool', 'reasoning'],
+          'reasoning': {
+            'dialect': 'openaiResponsesReasoning',
+            'levels': ['low', 'high'],
+          },
         },
       },
       oauthCredentials: ProviderOAuthCredentials(
@@ -715,6 +719,122 @@ void main() {
     );
     await tester.runAsync(() => settings.setProviderConfig(config.id, config));
     return config;
+  }
+
+  for (final desktop in [false, true]) {
+    testWidgets('OAuth model switches retain the catalog desktop=$desktop', (
+      tester,
+    ) async {
+      tester.view.physicalSize = desktop
+          ? const Size(760, 900)
+          : const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final config = (await connectedDetail(tester)).copyWith(
+        name: 'ChatGPT',
+        oauthProvider: OAuthProvider.chatgpt,
+        models: ['gpt-6-sol', 'gpt-6.1-sol'],
+      );
+      await tester.runAsync(() async {
+        await settings.setProviderConfig(config.id, config);
+        await settings.setCurrentModel(config.id, 'gpt-6-sol');
+      });
+      final assistants = (await tester.runAsync(() async {
+        final assistantPreferences = createBusinessTestPreferences();
+        await assistantPreferences.load();
+        await assistantPreferences.setString(
+          'assistants_v1',
+          jsonEncode([
+            {
+              'id': 'a',
+              'name': 'Assistant',
+              'chatModelProvider': config.id,
+              'chatModelId': 'gpt-6-sol',
+            },
+            {
+              'id': 'b',
+              'name': 'Other assistant',
+              'chatModelProvider': config.id,
+              'chatModelId': 'gpt-6.1-sol',
+            },
+          ]),
+        );
+        final provider = AssistantProvider(preferences: assistantPreferences);
+        await provider.loaded;
+        return provider;
+      }))!;
+      addTearDown(assistants.dispose);
+      final service = _DetailService();
+      addTearDown(service.dispose);
+      final key = GlobalKey();
+      Widget detail() => ChangeNotifierProvider<AssistantProvider>.value(
+        value: assistants,
+        child: app(
+          RepaintBoundary(
+            key: key,
+            child: OAuthProviderDetailPage(
+              providerId: config.id,
+              embedded: desktop,
+              service: service,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(detail());
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(
+        const ValueKey('oauth-model-enabled-gpt-6-sol'),
+      );
+      await tester.ensureVisible(toggle);
+      await tester.runAsync(() async {
+        final cleared = Completer<void>();
+        void onCleared() {
+          if (assistants.getById('a')!.chatModelId == null &&
+              !cleared.isCompleted) {
+            cleared.complete();
+          }
+        }
+
+        assistants.addListener(onCleared);
+        try {
+          await tester.tap(toggle);
+          await cleared.future.timeout(const Duration(seconds: 5));
+        } finally {
+          assistants.removeListener(onCleared);
+        }
+      });
+      await tester.pumpAndSettle();
+      expect(settings.getProviderConfig(config.id).enabledModels, [
+        'gpt-6.1-sol',
+      ]);
+      expect(settings.currentModelId, isNull);
+      expect(assistants.getById('a')!.chatModelId, isNull);
+      expect(assistants.getById('b')!.chatModelId, 'gpt-6.1-sol');
+      expect(find.text('gpt-6-sol'), findsOneWidget);
+      expect(find.text('1/2'), findsOneWidget);
+      expect(tester.widget<IosSwitch>(toggle).value, isFalse);
+      await snapshot(
+        tester,
+        key,
+        'oauth-model-selection-${desktop ? 'desktop' : 'mobile'}',
+      );
+
+      // Reopening the real detail page must still expose the disabled model.
+      await tester.pumpWidget(app(const SizedBox()));
+      await tester.pumpWidget(detail());
+      await tester.pumpAndSettle();
+      expect(tester.widget<IosSwitch>(toggle).value, isFalse);
+      await tester.ensureVisible(toggle);
+      await tester.runAsync(() => tester.tap(toggle));
+      await tester.pumpAndSettle();
+      expect(
+        settings.getProviderConfig(config.id).enabledModels,
+        config.models,
+      );
+      expect(find.text('2/2'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   for (final brightness in Brightness.values) {
@@ -748,16 +868,19 @@ void main() {
         )!;
         expect(find.byType(DesktopProviderDetailPane), findsOneWidget);
         expect(find.text(l.addProviderSheetEnabledLabel), findsNothing);
-        expect(find.byType(IosSwitch), findsOneWidget);
-        expect(tester.getTopLeft(find.byType(IosSwitch)).dy, lessThan(36));
-        await tester.runAsync(() => tester.tap(find.byType(IosSwitch)));
+        expect(find.byType(IosSwitch), findsNWidgets(3));
+        expect(
+          tester.getTopLeft(find.byType(IosSwitch).first).dy,
+          lessThan(36),
+        );
+        await tester.runAsync(() => tester.tap(find.byType(IosSwitch).first));
         await tester.pumpAndSettle();
         expect(settings.providerConfigs[config.id]!.enabled, false);
         expect(
           settings.providerConfigs[config.id]!.oauthCredentials!.sessionId,
           'session',
         );
-        await tester.runAsync(() => tester.tap(find.byType(IosSwitch)));
+        await tester.runAsync(() => tester.tap(find.byType(IosSwitch).first));
         await tester.pumpAndSettle();
         expect(
           tester.widget<Text>(find.text('Grok').first).style!.fontSize,
@@ -1000,24 +1123,44 @@ void main() {
     );
     await tester.tap(find.text('Synced Kimi'));
     await tester.pumpAndSettle();
-    expect(find.text('Confirm'), findsOneWidget);
-    expect(find.byType(BottomSheet), desktop ? findsNothing : findsOneWidget);
+    if (desktop) {
+      expect(find.text('Confirm'), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+    } else {
+      expect(find.byKey(const ValueKey('model-spec-save')), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+    }
     expect(tester.takeException(), isNull);
+  }
+
+  Future<void> confirmModelEditor(
+    WidgetTester tester, {
+    required bool desktop,
+  }) async {
+    await tester.tap(
+      desktop
+          ? find.text('Confirm')
+          : find.byKey(const ValueKey('model-spec-save')),
+    );
+    await tester.pumpAndSettle();
   }
 
   const anthropicMetadata = <String, dynamic>{
     'oauthProtocol': 'anthropic',
-    'oauthThinkingMode': 'enabled',
-    'oauthThinkingRequired': true,
-    'oauthThinkingEfforts': <String>[],
-    'oauthThinkingDefaultEffort': null,
+    'reasoning': {
+      'dialect': 'anthropicBudget',
+      'levels': ['low', 'medium', 'high'],
+      'canDisable': false,
+    },
   };
   const openaiMetadata = <String, dynamic>{
     'oauthProtocol': 'openai',
-    'oauthThinkingMode': 'adaptive',
-    'oauthThinkingRequired': false,
-    'oauthThinkingEfforts': ['low', 'high'],
-    'oauthThinkingDefaultEffort': 'high',
+    'reasoning': {
+      'dialect': 'kimiThinking',
+      'levels': ['low', 'high'],
+      'canDisable': true,
+      'defaultLevel': 'high',
+    },
   };
 
   void expectMetadata(Map saved, Map<String, dynamic> metadata) {
@@ -1032,8 +1175,7 @@ void main() {
         'model Confirm preserves ${metadata['oauthProtocol']} OAuth metadata desktop=$desktop',
         (tester) async {
           await openModelEditor(tester, desktop: desktop, metadata: metadata);
-          await tester.tap(find.text('Confirm'));
-          await tester.pumpAndSettle();
+          await confirmModelEditor(tester, desktop: desktop);
 
           final config = settings.providerConfigs['oauth-test']!;
           final saved = config.modelOverrides['kimi-test-alias'] as Map;
@@ -1072,8 +1214,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Confirm'));
-        await tester.pumpAndSettle();
+        await confirmModelEditor(tester, desktop: desktop);
 
         final saved =
             settings
@@ -1097,8 +1238,7 @@ void main() {
         await tester.ensureVisible(find.text('Embedding'));
         await tester.tap(find.text('Embedding'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Confirm'));
-        await tester.pumpAndSettle();
+        await confirmModelEditor(tester, desktop: desktop);
 
         final saved =
             settings
@@ -1259,8 +1399,104 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Extra usage'), findsOneWidget);
-      expect(find.text('\$2.49'), findsOneWidget);
+      expect(find.text('Used \$2.49'), findsOneWidget);
       expect(find.text('0%'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'OAuth quotas display credit amounts, monthly labels and advisory state',
+    (tester) async {
+      await tester.pumpWidget(
+        app(
+          SingleChildScrollView(
+            child: OAuthAccountCard(
+              avatar: const SizedBox(),
+              name: 'Account',
+              showDetails: true,
+              usage: ProviderUsageSnapshot(
+                fetchedAt: DateTime(2026, 10, 30),
+                windows: const [
+                  ProviderUsageWindow(
+                    id: 'spend-cap',
+                    unit: 'credits',
+                    used: 3.25,
+                    limit: 100,
+                    usedPercent: 3.25,
+                  ),
+                  ProviderUsageWindow(id: 'limit_month_total', usedPercent: 8),
+                  ProviderUsageWindow(id: 'limit_month_code', usedPercent: 0),
+                  ProviderUsageWindow(id: 'on-demand', usedPercent: 40),
+                  ProviderUsageWindow(
+                    id: 'monthly',
+                    usedPercent: 100,
+                    advisory: true,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Credit spend cap'), findsOneWidget);
+      expect(find.text('Used 3.25 / 100.00 credits'), findsOneWidget);
+      expect(find.text('Monthly total'), findsOneWidget);
+      expect(find.text('Monthly code'), findsOneWidget);
+      expect(find.text('On-demand quota'), findsOneWidget);
+      expect(find.textContaining('For reference only:'), findsOneWidget);
+      expect(find.text('This account has no available quota.'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'OAuth credit-only remaining amount never fabricates used credits',
+    (tester) async {
+      await tester.pumpWidget(
+        app(
+          OAuthAccountCard(
+            avatar: const SizedBox(),
+            name: 'Account',
+            usage: ProviderUsageSnapshot(
+              fetchedAt: DateTime(2026, 10, 30),
+              windows: const [
+                ProviderUsageWindow(
+                  id: 'spend-cap',
+                  unit: 'credits',
+                  remaining: 12.5,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Remaining 12.50 credits'), findsOneWidget);
+      expect(find.textContaining('Used '), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(
+        app(
+          OAuthAccountCard(
+            avatar: const SizedBox(),
+            name: 'Account',
+            usage: ProviderUsageSnapshot(
+              fetchedAt: DateTime(2026, 10, 30),
+              windows: const [
+                ProviderUsageWindow(
+                  id: 'spend-cap',
+                  unit: 'credits',
+                  limit: 100,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Used — / 100.00 credits'), findsOneWidget);
+      expect(find.text('Used 0%'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

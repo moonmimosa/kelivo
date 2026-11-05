@@ -12,6 +12,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:path/path.dart' as p;
 import '../services/search/search_service.dart';
+import '../services/search/web_fetch_service.dart';
 import '../services/tts/network_tts.dart';
 import '../services/tts/tts_text_selection.dart';
 import '../services/asr/asr_service_options.dart';
@@ -20,6 +21,7 @@ import '../services/logging/context_logger.dart';
 import '../services/logging/flutter_logger.dart';
 import '../services/learning_mode_store.dart';
 import '../models/api_keys.dart';
+import '../models/avatar_config.dart';
 import '../models/backup.dart';
 import '../models/compress_context_options.dart';
 import '../models/auto_retry_options.dart';
@@ -30,11 +32,16 @@ import '../services/screen_wakelock.dart';
 import '../../utils/app_directories.dart';
 import '../../utils/sandbox_path_resolver.dart';
 import '../../utils/avatar_cache.dart';
-import '../utils/openai_model_compat.dart';
+import '../models/assistant.dart';
+import '../models/memory_entry.dart';
+import '../models/model_spec.dart';
+import '../models/reasoning_request.dart';
+import '../services/model_spec/model_spec_resolver.dart';
 import '../../utils/provider_grouping_logic.dart';
 import '../../utils/brand_assets.dart';
 import '../../utils/image_compressor.dart';
 import '../database/business_preferences.dart';
+import '../services/backup/backup_cancel_token.dart';
 import '../services/memory/memory_prompts.dart';
 import '../services/memory/memory_trace.dart';
 import '../../theme/palettes.dart';
@@ -80,6 +87,7 @@ class SettingsProvider extends ChangeNotifier {
     'SiliconFlow',
     'Gemini',
     'OpenRouter',
+    'Vercel',
     'KelivoIN',
     'Tensdaq',
     'DeepSeek',
@@ -95,6 +103,9 @@ class SettingsProvider extends ChangeNotifier {
   static const Set<String> _builtInProviderKeys = {
     ..._builtInProviderKeysInOrder,
   };
+  static bool isBuiltInProvider(String key) =>
+      _builtInProviderKeys.contains(key);
+
   static const String _themeModeKey = 'theme_mode_v1';
   static const String _providerConfigsKey = 'provider_configs_v1';
   static const String _pinnedModelsKey = 'pinned_models_v1';
@@ -117,6 +128,7 @@ class SettingsProvider extends ChangeNotifier {
   static const String _compressModelKey = 'compress_model_v1';
   static const String _compressPromptKey = 'compress_prompt_v1';
   static const String _compressLimitModeKey = 'compress_limit_mode_v1';
+  static const String _compressNewConversationKey = 'compress_new_conversation';
   static const String _compressKeepUserMessagesKey =
       'compress_keep_user_messages_v1';
   static const String _compressMaxCharsKey = 'compress_max_chars_v1';
@@ -128,7 +140,8 @@ class SettingsProvider extends ChangeNotifier {
   static const String _legacyCustomSeedColorKey = 'theme_custom_seed_v1';
   static const String _legacyCustomPrimaryOverrideKey =
       'theme_custom_primary_v1';
-  static const String _thinkingBudgetKey = 'thinking_budget_v1';
+  static const String _reasoningChoiceByModelKey =
+      'reasoning_choice_by_model_v1';
   static const String _titleGenerationThinkingEnabledKey =
       'title_generation_thinking_enabled_v1';
   static const String _summaryGenerationThinkingEnabledKey =
@@ -176,6 +189,8 @@ class SettingsProvider extends ChangeNotifier {
   static const int maxMemoryMigrationBatchSize = 24;
   static const String _memoryInjectionMaxItemsKey =
       'memory_injection_max_items_v1';
+  static const String _memoryFullInjectionTypesKey =
+      'memory_full_injection_types_v1';
   static const int defaultMemoryInjectionMaxItems = 10;
   static const int minMemoryInjectionMaxItems = 1;
   static const int maxMemoryInjectionMaxItems = 100;
@@ -184,6 +199,8 @@ class SettingsProvider extends ChangeNotifier {
   static const String _displayShowModelNameTimestampKey =
       'display_show_model_name_timestamp_v1';
   static const String _displayShowTokenStatsKey = 'display_show_token_stats_v1';
+  static const String _displayShowTotalTokensKey =
+      'display_show_total_tokens_v1';
   static const String _displayShowUserNameTimestampKey =
       'display_show_user_name_timestamp_v1';
   static const String _displayShowUserNameKey = 'display_show_user_name_v1';
@@ -199,6 +216,10 @@ class SettingsProvider extends ChangeNotifier {
   static const String _displayShowToolCardsKey = 'display_show_tool_cards_v1';
   static const String _displayShowProducedFilesKey =
       'display_show_produced_files_v1';
+  static const String _displayShowReasoningLevelBadgeKey =
+      'display_show_reasoning_level_badge_v1';
+  static const String _iosNativeSelectionMenuEnabledKey =
+      'ios_native_selection_menu_enabled_v1';
   static const String _displayAutoCollapseThinkingKey =
       'display_auto_collapse_thinking_v1';
   static const String _displayCollapseThinkingStepsKey =
@@ -207,6 +228,8 @@ class SettingsProvider extends ChangeNotifier {
       'display_show_tool_result_summary_v1';
   static const String _displayHideToolResultImagesKey =
       'display_hide_tool_result_images_v1';
+  static const String _displayShowBrowserPageCardsKey =
+      'display_show_browser_page_cards_v1';
   static const String _displayRegenerateDeleteTrailingMessagesKey =
       'display_regenerate_delete_trailing_messages_v1';
   static const String _displayShowRegenerateConfirmDialogKey =
@@ -263,8 +286,6 @@ class SettingsProvider extends ChangeNotifier {
   static const String _displayChatFontScaleKey = 'display_chat_font_scale_v1';
   static const String _displayAutoScrollEnabledKey =
       'display_auto_scroll_enabled_v1';
-  static const String _displayAutoScrollIdleSecondsKey =
-      'display_auto_scroll_idle_seconds_v1';
   static const String _displayChatBackgroundMaskStrengthKey =
       'display_chat_background_mask_strength_v1';
   static const String _displayChatInputBackgroundOpacityLightKey =
@@ -275,10 +296,16 @@ class SettingsProvider extends ChangeNotifier {
       'display_enable_dollar_latex_v1';
   static const String _displayEnableMathRenderingKey =
       'display_enable_math_rendering_v1';
+  static const String _displayUseLegacyInlineCodeStyleKey =
+      'display_use_legacy_inline_code_style_v1';
+  static const String _displayUseLegacyCodeBlockStyleKey =
+      'display_use_legacy_code_block_style_v1';
   static const String _displayEnableUserMarkdownKey =
       'display_enable_user_markdown_v1';
   static const String _displayEnableReasoningMarkdownKey =
       'display_enable_reasoning_markdown_v1';
+  static const String _displayShowGenUiHeaderKey =
+      'display_show_genui_header_v1';
   static const String _displayEnableAssistantMarkdownKey =
       'display_enable_assistant_markdown_v1';
   static const String _displayShowChatListDateKey =
@@ -343,8 +370,6 @@ class SettingsProvider extends ChangeNotifier {
   static const String _appLaunchCountKey = 'app_launch_count_v1';
   // Desktop topic panel placement + right sidebar open state
   static const String _desktopTopicPositionKey = 'desktop_topic_position_v1';
-  static const String _desktopRightSidebarOpenKey =
-      'desktop_right_sidebar_open_v1';
   static const String _mobileBackgroundKey = 'mobile_background_settings_v1';
   // Fonts
   static const String _displayAppFontFamilyKey = 'display_app_font_family_v1';
@@ -376,6 +401,9 @@ class SettingsProvider extends ChangeNotifier {
   static const String _searchEnabledKey = 'search_enabled_v1';
   static const String _searchAutoTestOnLaunchKey =
       'search_auto_test_on_launch_v1';
+  static const String _webFetchModeKey = 'search_web_fetch_v1';
+  static const String _backupEncryptionEnabledKey =
+      'backup_encryption_enabled_v1';
   static const String _webDavConfigKey = 'webdav_config_v1';
   static const String _s3ConfigKey = 's3_config_v1';
   // Global network proxy
@@ -403,10 +431,6 @@ class SettingsProvider extends ChangeNotifier {
   // Desktop UI
   static const String _desktopSidebarWidthKey = 'desktop_sidebar_width_v1';
   static const String _desktopSidebarOpenKey = 'desktop_sidebar_open_v1';
-  static const String _desktopRightSidebarWidthKey =
-      'desktop_right_sidebar_width_v1';
-  static const String _desktopWorkspaceBarOpenKey =
-      'desktop_workspace_bar_open_v1';
 
   // ===== Network TTS services =====
   List<TtsServiceOptions> _ttsServices = const <TtsServiceOptions>[];
@@ -536,24 +560,19 @@ class SettingsProvider extends ChangeNotifier {
   bool _desktopSidebarOpen = true;
   double get desktopSidebarWidth => _desktopSidebarWidth;
   bool get desktopSidebarOpen => _desktopSidebarOpen;
-  double _desktopRightSidebarWidth = 300;
-  double get desktopRightSidebarWidth => _desktopRightSidebarWidth;
 
   // Desktop: topic list position (left or right) and right sidebar open state
   DesktopTopicPosition _desktopTopicPosition = DesktopTopicPosition.left;
   DesktopTopicPosition get desktopTopicPosition => _desktopTopicPosition;
   bool get desktopTopicsOnRight =>
       _desktopTopicPosition == DesktopTopicPosition.right;
-  bool _desktopRightSidebarOpen = true;
-  bool get desktopRightSidebarOpen => _desktopRightSidebarOpen;
-  bool _desktopWorkspaceBarOpen = false;
-  bool get desktopWorkspaceBarOpen => _desktopWorkspaceBarOpen;
 
   Map<String, ProviderConfig> _providerConfigs = {};
   Map<String, ProviderConfig> get providerConfigs =>
       Map.unmodifiable(_providerConfigs);
-  bool get hasAnyActiveModel =>
-      _providerConfigs.values.any((c) => c.enabled && c.models.isNotEmpty);
+  bool get hasAnyActiveModel => _providerConfigs.values.any(
+    (c) => c.enabled && c.enabledModels.isNotEmpty,
+  );
   // Returns a config for the given key without mutating internal state when missing.
   // This avoids implicitly creating providers during read paths (e.g., rendering old chats).
   ProviderConfig getProviderConfig(String key, {String? defaultName}) {
@@ -563,139 +582,22 @@ class SettingsProvider extends ChangeNotifier {
     return ProviderConfig.defaultsFor(key, displayName: defaultName);
   }
 
-  String resolveOpenAIUpstreamModelId(String providerKey, String modelId) {
-    final cfg = getProviderConfig(providerKey);
-    final kind = ProviderConfig.classify(
-      cfg.id,
-      explicitType: cfg.providerType,
-    );
-    if (kind != ProviderKind.openai) return modelId;
-    final rawOv = cfg.modelOverrides[modelId];
-    final ov = rawOv is Map ? rawOv.cast<String, dynamic>() : null;
-    return resolveApiModelIdOverride(ov, modelId);
-  }
-
   bool supportsXhighReasoning(String providerKey, String modelId) {
     final cfg = getProviderConfig(providerKey);
-    final kind = ProviderConfig.classify(
-      cfg.id,
-      explicitType: cfg.providerType,
-    );
-    switch (kind) {
-      case ProviderKind.openai:
-        final modelForCheck = resolveOpenAIUpstreamModelId(
-          providerKey,
-          modelId,
-        );
-        return openAISupportsXhighReasoning(modelForCheck);
-      case ProviderKind.claude:
-        final rawOv = cfg.modelOverrides[modelId];
-        final ov = rawOv is Map ? rawOv.cast<String, dynamic>() : null;
-        final modelForCheck = resolveApiModelIdOverride(ov, modelId);
-        return !ProviderConfig.isDeepSeekClaudeCompatible(
-              modelForCheck,
-              config: cfg,
-            ) &&
-            _claudeSupportsXhighReasoning(modelForCheck);
-      case ProviderKind.google:
-        return false;
-    }
+    return ModelSpecResolver.instance
+        .spec(cfg, modelId)
+        .reasoning
+        .levels
+        .contains(ReasoningLevel.xhigh);
   }
 
   bool supportsMaxReasoning(String providerKey, String modelId) {
     final cfg = getProviderConfig(providerKey);
-    final kind = ProviderConfig.classify(
-      cfg.id,
-      explicitType: cfg.providerType,
-    );
-    switch (kind) {
-      case ProviderKind.openai:
-        final modelForCheck = resolveOpenAIUpstreamModelId(
-          providerKey,
-          modelId,
-        );
-        return openAISupportsMaxReasoning(modelForCheck);
-      case ProviderKind.google:
-        return false;
-      case ProviderKind.claude:
-        final rawOv = cfg.modelOverrides[modelId];
-        final ov = rawOv is Map ? rawOv.cast<String, dynamic>() : null;
-        final modelForCheck = resolveApiModelIdOverride(ov, modelId);
-        return ProviderConfig.isDeepSeekClaudeCompatible(
-              modelForCheck,
-              config: cfg,
-            ) ||
-            _claudeSupportsMaxReasoning(modelForCheck);
-    }
-  }
-
-  bool supportsOpenAIXhighReasoning(String providerKey, String modelId) {
-    return supportsXhighReasoning(providerKey, modelId);
-  }
-
-  bool _claudeSupportsXhighReasoning(String modelId) {
-    final lower = modelId.trim().toLowerCase();
-    if (!lower.contains('claude-')) return false;
-    if (lower.contains('fable') || lower.contains('mythos')) return true;
-    if (RegExp(
-      r'claude-(?:opus|sonnet)-5(?:$|[._:@/-])',
-      caseSensitive: false,
-    ).hasMatch(lower)) {
-      return true;
-    }
-    final m = RegExp(
-      r'claude-(opus|sonnet)-(\d+)[-.](\d+)',
-      caseSensitive: false,
-    ).firstMatch(lower);
-    if (m == null) {
-      return lower.contains('claude-opus-4-7') ||
-          lower.contains('claude-opus-4.7') ||
-          lower.contains('claude-opus-4-8') ||
-          lower.contains('claude-opus-4.8');
-    }
-    final family = (m.group(1) ?? '').toLowerCase();
-    final major = int.tryParse(m.group(2) ?? '');
-    final minor = int.tryParse(m.group(3) ?? '');
-    if (major == null || minor == null) return false;
-    if (family == 'opus' && (major > 4 || (major == 4 && minor >= 7))) {
-      return true;
-    }
-    return false;
-  }
-
-  bool _claudeSupportsMaxReasoning(String modelId) {
-    final lower = modelId.trim().toLowerCase();
-    if (!lower.contains('claude-')) return false;
-    if (lower.contains('fable') || lower.contains('mythos')) return true;
-    if (RegExp(
-      r'claude-(?:opus|sonnet)-5(?:$|[._:@/-])',
-      caseSensitive: false,
-    ).hasMatch(lower)) {
-      return true;
-    }
-    final m = RegExp(
-      r'claude-(opus|sonnet)-(\d+)[-.](\d+)',
-      caseSensitive: false,
-    ).firstMatch(lower);
-    if (m == null) {
-      return lower.contains('claude-opus-4-7') ||
-          lower.contains('claude-opus-4.7') ||
-          lower.contains('claude-opus-4-8') ||
-          lower.contains('claude-opus-4.8') ||
-          lower.contains('claude-opus-4-6') ||
-          lower.contains('claude-opus-4.6') ||
-          lower.contains('claude-sonnet-4-6') ||
-          lower.contains('claude-sonnet-4.6');
-    }
-    final family = (m.group(1) ?? '').toLowerCase();
-    final major = int.tryParse(m.group(2) ?? '');
-    final minor = int.tryParse(m.group(3) ?? '');
-    if (major == null || minor == null) return false;
-    if (family == 'opus' && (major > 4 || (major == 4 && minor >= 7))) {
-      return true;
-    }
-    if (major == 4 && minor == 6) return true;
-    return false;
+    return ModelSpecResolver.instance
+        .spec(cfg, modelId)
+        .reasoning
+        .levels
+        .contains(ReasoningLevel.max);
   }
 
   // Explicitly ensure a provider config exists in memory (without persisting to storage).
@@ -722,6 +624,9 @@ class SettingsProvider extends ChangeNotifier {
   bool get searchEnabled => _searchEnabled;
   bool _searchAutoTestOnLaunch = false;
   bool get searchAutoTestOnLaunch => _searchAutoTestOnLaunch;
+  // follow | local | off | a search service id (see WebFetchMode)
+  String _webFetchMode = WebFetchMode.follow;
+  String get webFetchMode => _webFetchMode;
   // Ephemeral connection test results: serviceId -> connected (true), failed (false), or null (not tested)
   final Map<String, bool?> _searchConnection = <String, bool?>{};
   Map<String, bool?> get searchConnection =>
@@ -750,16 +655,18 @@ class SettingsProvider extends ChangeNotifier {
   int _appLaunchCount = 0;
   int get appLaunchCount => _appLaunchCount;
 
-  SettingsProvider(this._preferences) {
+  SettingsProvider(this._preferences, {this.onProviderModelsRetired}) {
     ProviderOAuthService.instance.bind(this);
     _appLocaleTag = _readAppLocaleTag(_preferences);
     _loaded = _load();
   }
 
   SettingsProvider._withoutLoad(this._preferences)
-    : _loaded = Future<void>.value();
+    : onProviderModelsRetired = null,
+      _loaded = Future<void>.value();
 
   final BusinessPreferences _preferences;
+  final Future<void> Function(String providerKey)? onProviderModelsRetired;
   late final Future<void> _loaded;
   Future<void> get loaded => _loaded;
 
@@ -951,9 +858,11 @@ class SettingsProvider extends ChangeNotifier {
     final compressModeName = prefs.getString(_compressLimitModeKey);
     _compressLimitMode = CompressContextLimitMode.values.firstWhere(
       (mode) => mode.name == compressModeName,
-      orElse: () => CompressContextLimitMode.start,
+      orElse: () => CompressContextLimitMode.keepRecent,
     );
     _compressKeepUserMessages = prefs.getInt(_compressKeepUserMessagesKey);
+    _compressNewConversation =
+        prefs.getBool(_compressNewConversationKey) ?? false;
     _compressMaxChars =
         prefs.getInt(_compressMaxCharsKey) ??
         CompressContextOptions.defaultMaxChars;
@@ -963,8 +872,9 @@ class SettingsProvider extends ChangeNotifier {
     _learningModePrompt = (lmp == null || lmp.trim().isEmpty)
         ? defaultLearningModePrompt
         : lmp;
-    // load thinking budget (reasoning strength)
-    _thinkingBudget = prefs.getInt(_thinkingBudgetKey);
+    _reasoningChoiceByModel = _decodeReasoningChoiceByModel(
+      prefs.getString(_reasoningChoiceByModelKey),
+    );
     _titleGenerationThinkingEnabled =
         prefs.getBool(_titleGenerationThinkingEnabledKey) ?? false;
     _summaryGenerationThinkingEnabled =
@@ -1068,6 +978,13 @@ class SettingsProvider extends ChangeNotifier {
         (prefs.getInt(_memoryInjectionMaxItemsKey) ??
                 defaultMemoryInjectionMaxItems)
             .clamp(minMemoryInjectionMaxItems, maxMemoryInjectionMaxItems);
+    final fullInjectionTypes =
+        prefs.getStringList(_memoryFullInjectionTypesKey) ?? const <String>[];
+    _memoryFullInjectionTypes = Set<MemoryType>.unmodifiable(
+      MemoryType.values.where(
+        (type) => fullInjectionTypes.contains(MemoryEntry.typeToString(type)),
+      ),
+    );
 
     // display settings
     _showUserAvatar = prefs.getBool(_displayShowUserAvatarKey) ?? true;
@@ -1075,6 +992,7 @@ class SettingsProvider extends ChangeNotifier {
     _showModelNameTimestamp =
         prefs.getBool(_displayShowModelNameTimestampKey) ?? true;
     _showTokenStats = prefs.getBool(_displayShowTokenStatsKey) ?? true;
+    _showTotalTokens = prefs.getBool(_displayShowTotalTokensKey) ?? false;
     _showUserNameTimestamp =
         prefs.getBool(_displayShowUserNameTimestampKey) ?? true;
     // new split settings: default to the legacy combined setting value for backward compat
@@ -1092,6 +1010,10 @@ class SettingsProvider extends ChangeNotifier {
     _showThinkingCards = prefs.getBool(_displayShowThinkingCardsKey) ?? true;
     _showToolCards = prefs.getBool(_displayShowToolCardsKey) ?? true;
     _showProducedFiles = prefs.getBool(_displayShowProducedFilesKey) ?? true;
+    _showReasoningLevelBadge =
+        prefs.getBool(_displayShowReasoningLevelBadgeKey) ?? false;
+    _iosNativeSelectionMenuEnabled =
+        localPreferences.getBool(_iosNativeSelectionMenuEnabledKey) ?? true;
     _autoCollapseThinking =
         prefs.getBool(_displayAutoCollapseThinkingKey) ?? true;
     _collapseThinkingSteps =
@@ -1100,6 +1022,8 @@ class SettingsProvider extends ChangeNotifier {
         prefs.getBool(_displayShowToolResultSummaryKey) ?? false;
     _hideToolResultImages =
         prefs.getBool(_displayHideToolResultImagesKey) ?? false;
+    _showBrowserPageCards =
+        prefs.getBool(_displayShowBrowserPageCardsKey) ?? true;
     _regenerateDeleteTrailingMessages =
         prefs.getBool(_displayRegenerateDeleteTrailingMessagesKey) ?? false;
     _showRegenerateConfirmDialog =
@@ -1193,8 +1117,6 @@ class SettingsProvider extends ChangeNotifier {
     _chatFontScale =
         localPreferences.getDouble(_displayChatFontScaleKey) ?? 1.0;
     _autoScrollEnabled = prefs.getBool(_displayAutoScrollEnabledKey) ?? true;
-    _autoScrollIdleSeconds =
-        prefs.getInt(_displayAutoScrollIdleSecondsKey) ?? 8;
     _chatBackgroundMaskStrength =
         prefs.getDouble(_displayChatBackgroundMaskStrengthKey) ?? 1.0;
     _chatInputBackgroundOpacityLight =
@@ -1225,9 +1147,14 @@ class SettingsProvider extends ChangeNotifier {
     _enableDollarLatex = prefs.getBool(_displayEnableDollarLatexKey) ?? true;
     _enableMathRendering =
         prefs.getBool(_displayEnableMathRenderingKey) ?? true;
+    _useLegacyInlineCodeStyle =
+        prefs.getBool(_displayUseLegacyInlineCodeStyleKey) ?? false;
+    _useLegacyCodeBlockStyle =
+        prefs.getBool(_displayUseLegacyCodeBlockStyleKey) ?? false;
     _enableUserMarkdown = prefs.getBool(_displayEnableUserMarkdownKey) ?? true;
     _enableReasoningMarkdown =
         prefs.getBool(_displayEnableReasoningMarkdownKey) ?? true;
+    _showGenUiHeader = prefs.getBool(_displayShowGenUiHeaderKey) ?? true;
     _enableAssistantMarkdown =
         prefs.getBool(_displayEnableAssistantMarkdownKey) ?? true;
     _showChatListDate = prefs.getBool(_displayShowChatListDateKey) ?? false;
@@ -1308,10 +1235,6 @@ class SettingsProvider extends ChangeNotifier {
       default:
         _desktopTopicPosition = DesktopTopicPosition.left;
     }
-    _desktopRightSidebarOpen =
-        prefs.getBool(_desktopRightSidebarOpenKey) ?? true;
-    _desktopWorkspaceBarOpen =
-        prefs.getBool(_desktopWorkspaceBarOpenKey) ?? false;
     // Chat message background style (default | frosted | solid)
     final bgStyleStr =
         prefs.getString(_displayChatMessageBackgroundStyleKey) ?? 'default';
@@ -1375,8 +1298,6 @@ class SettingsProvider extends ChangeNotifier {
     // desktop UI
     _desktopSidebarWidth = prefs.getDouble(_desktopSidebarWidthKey) ?? 300;
     _desktopSidebarOpen = prefs.getBool(_desktopSidebarOpenKey) ?? true;
-    _desktopRightSidebarWidth =
-        prefs.getDouble(_desktopRightSidebarWidthKey) ?? 300;
     // Load app locale; default to follow system on first launch
     final storedAppLocale = prefs.get(_appLocaleKey);
     _appLocaleTag = _readAppLocaleTag(prefs);
@@ -1420,6 +1341,7 @@ class SettingsProvider extends ChangeNotifier {
     _searchEnabled = prefs.getBool(_searchEnabledKey) ?? false;
     _searchAutoTestOnLaunch =
         prefs.getBool(_searchAutoTestOnLaunchKey) ?? false;
+    _webFetchMode = prefs.getString(_webFetchModeKey) ?? WebFetchMode.follow;
 
     // load global proxy
     _globalProxyEnabled = prefs.getBool(_globalProxyEnabledKey) ?? false;
@@ -1533,6 +1455,8 @@ class SettingsProvider extends ChangeNotifier {
         await prefs.setString(_asrSelectedServiceIdKey, _selectedAsrServiceId!);
       }
     }
+    _backupEncryptionEnabled =
+        prefs.getBool(_backupEncryptionEnabledKey) ?? false;
     // webdav config
     final webdavStr = prefs.getString(_webDavConfigKey);
     if (webdavStr != null && webdavStr.isNotEmpty) {
@@ -1562,6 +1486,23 @@ class SettingsProvider extends ChangeNotifier {
         (key, config) => MapEntry(key, config.toJson()),
       );
       await prefs.setString(_providerConfigsKey, jsonEncode(seededConfigs));
+    }
+
+    final kelivo = _providerConfigs['KelivoIN'];
+    final kelivoHost = Uri.tryParse(kelivo?.baseUrl ?? '')?.host.toLowerCase();
+    if (kelivo != null &&
+        (kelivoHost == 'pollinations.ai' ||
+            (kelivoHost?.endsWith('.pollinations.ai') ?? false))) {
+      // The retired service cannot be used anymore. Drop its saved credentials,
+      // models and selections before installing the current built-in provider.
+      await onProviderModelsRetired?.call('KelivoIN');
+      await removeProviderConfig('KelivoIN');
+      await setProviderConfig(
+        'KelivoIN',
+        ProviderConfig.defaultsFor(
+          'KelivoIN',
+        ).copyWith(enabled: kelivo.enabled),
+      );
     }
 
     // kick off a one-time connectivity test for services (exclude local Bing)
@@ -2161,17 +2102,6 @@ class SettingsProvider extends ChangeNotifier {
     await prefs.setBool(_desktopSidebarOpenKey, _desktopSidebarOpen);
   }
 
-  Future<void> setDesktopRightSidebarWidth(double w) async {
-    if ((_desktopRightSidebarWidth - w).abs() < 0.5) return;
-    _desktopRightSidebarWidth = w;
-    notifyListeners();
-    final prefs = _preferences;
-    await prefs.setDouble(
-      _desktopRightSidebarWidthKey,
-      _desktopRightSidebarWidth,
-    );
-  }
-
   // Desktop: topic panel placement (left/right)
   Future<void> setDesktopTopicPosition(DesktopTopicPosition pos) async {
     if (_desktopTopicPosition == pos) return;
@@ -2183,21 +2113,6 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   // Desktop: right sidebar visible state
-  Future<void> setDesktopRightSidebarOpen(bool open) async {
-    if (_desktopRightSidebarOpen == open) return;
-    _desktopRightSidebarOpen = open;
-    notifyListeners();
-    final prefs = _preferences;
-    await prefs.setBool(_desktopRightSidebarOpenKey, _desktopRightSidebarOpen);
-  }
-
-  Future<void> setDesktopWorkspaceBarOpen(bool open) async {
-    if (_desktopWorkspaceBarOpen == open) return;
-    _desktopWorkspaceBarOpen = open;
-    notifyListeners();
-    final prefs = _preferences;
-    await prefs.setBool(_desktopWorkspaceBarOpenKey, _desktopWorkspaceBarOpen);
-  }
 
   // ===== App locale (UI language) =====
   String? _appLocaleTag; // 'system', 'zh_CN', 'zh_Hant', 'en_US'
@@ -2252,6 +2167,39 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   // ===== Backup & WebDAV settings =====
+  bool _backupEncryptionEnabled = false;
+  String? _backupEncryptionPassword;
+  bool get backupEncryptionEnabled => _backupEncryptionEnabled;
+
+  /// Persist only the preference. The password stays in this app session, so
+  /// navigating away cannot silently disable encryption or lose the password.
+  Future<void> setBackupEncryptionPassword(String? password) async {
+    if (password != null && password.isEmpty) {
+      throw ArgumentError('backup_password_empty');
+    }
+    await loaded;
+    await _preferences.setBool(_backupEncryptionEnabledKey, password != null);
+    _backupEncryptionEnabled = password != null;
+    _backupEncryptionPassword = password;
+    notifyListeners();
+  }
+
+  /// An enabled preference without a session password must prompt or cancel;
+  /// null is returned only when the user has disabled encryption.
+  Future<String?> resolveBackupEncryptionPassword(
+    Future<String?> Function() prompt,
+  ) async {
+    await loaded;
+    if (!_backupEncryptionEnabled) return null;
+    if (_backupEncryptionPassword case final String password) return password;
+    final password = await prompt();
+    if (password == null || password.isEmpty || !_backupEncryptionEnabled) {
+      throw const BackupCancelledException();
+    }
+    _backupEncryptionPassword = password;
+    return password;
+  }
+
   WebDavConfig _webDavConfig = const WebDavConfig();
   WebDavConfig get webDavConfig => _webDavConfig;
   Future<void> setWebDavConfig(WebDavConfig cfg) async {
@@ -3049,6 +2997,7 @@ class SettingsProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _backupEncryptionPassword = null;
     ProviderOAuthService.instance.unbind(this);
     _toolSchemaOverridePersistTimer?.cancel();
     _toolSchemaOverridePersistTimer = null;
@@ -3152,6 +3101,31 @@ class SettingsProvider extends ChangeNotifier {
     final prefs = _preferences;
     final map = _providerConfigs.map((k, v) => MapEntry(k, v.toJson()));
     await prefs.setString(_providerConfigsKey, jsonEncode(map));
+  }
+
+  Future<void> setModelEnabled(
+    String providerKey,
+    String modelId,
+    bool enabled,
+  ) async {
+    final config = _providerConfigs[providerKey];
+    if (config == null || !config.models.contains(modelId)) return;
+    final disabled = Set<String>.of(config.disabledModels);
+    final changed = enabled ? disabled.remove(modelId) : disabled.add(modelId);
+    if (!changed) return;
+    await setProviderConfig(
+      providerKey,
+      config.copyWith(disabledModels: disabled),
+    );
+    if (!enabled &&
+        _providerConfigs[providerKey]?.disabledModels.contains(modelId) ==
+            true) {
+      await clearSelectionsForModel(
+        providerKey,
+        modelId,
+        preserveModelPreferences: true,
+      );
+    }
   }
 
   Future<int> deleteModels(String providerKey, Set<String> modelIds) async {
@@ -3274,13 +3248,21 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   // Store a LobeHub icon name (not the full URL); URL is built at render time.
-  Future<void> setProviderAvatarLobehub(String key, String name) async {
+  Future<void> setProviderAvatarLobehub(
+    String key,
+    String name, {
+    bool monochrome = false,
+  }) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
     final old = getProviderConfig(key);
     await setProviderConfig(
       key,
-      old.copyWith(avatarType: 'lobehub', avatarValue: trimmed),
+      old.copyWith(
+        avatarType: 'lobehub',
+        avatarValue: trimmed,
+        avatarMonochrome: monochrome,
+      ),
     );
   }
 
@@ -3305,7 +3287,11 @@ class SettingsProvider extends ChangeNotifier {
     }
     await setProviderConfig(
       key,
-      old.copyWith(avatarType: null, avatarValue: null),
+      old.copyWith(
+        avatarType: null,
+        avatarValue: null,
+        avatarMonochrome: false,
+      ),
     );
   }
 
@@ -3372,11 +3358,12 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// Clears global model selections that reference a specific model.
-  /// Used when a model is deleted from a provider.
+  /// Used when a model is disabled or deleted from a provider.
   Future<void> clearSelectionsForModel(
     String providerKey,
-    String modelId,
-  ) async {
+    String modelId, {
+    bool preserveModelPreferences = false,
+  }) async {
     final prefs = _preferences;
     bool changed = false;
     if (_currentModelProvider == providerKey && _currentModelId == modelId) {
@@ -3435,11 +3422,19 @@ class SettingsProvider extends ChangeNotifier {
       await prefs.remove(_memoryModelKey);
       changed = true;
     }
-    // Also remove from pinned if applicable
+    // Disabling hides a model temporarily; deleting also removes its preferences.
     final pinKey = '$providerKey::$modelId';
-    if (_pinnedModels.contains(pinKey)) {
+    if (!preserveModelPreferences && _pinnedModels.contains(pinKey)) {
       _pinnedModels.remove(pinKey);
       await prefs.setStringList(_pinnedModelsKey, _pinnedModels.toList());
+      changed = true;
+    }
+    if (!preserveModelPreferences &&
+        _reasoningChoiceByModel.containsKey(pinKey)) {
+      _reasoningChoiceByModel = Map<String, ReasoningRequest>.from(
+        _reasoningChoiceByModel,
+      )..remove(pinKey);
+      await _persistReasoningChoiceByModel();
       changed = true;
     }
     if (changed) notifyListeners();
@@ -3508,6 +3503,13 @@ class SettingsProvider extends ChangeNotifier {
     _pinnedModels.removeWhere((entry) => entry.startsWith('$key::'));
     if (_pinnedModels.length != beforePinned) {
       await prefs.setStringList(_pinnedModelsKey, _pinnedModels.toList());
+    }
+    final nextReasoning = Map<String, ReasoningRequest>.from(
+      _reasoningChoiceByModel,
+    )..removeWhere((entry, _) => entry.startsWith('$key::'));
+    if (nextReasoning.length != _reasoningChoiceByModel.length) {
+      _reasoningChoiceByModel = nextReasoning;
+      await _persistReasoningChoiceByModel();
     }
 
     // Persist updates
@@ -3656,6 +3658,7 @@ You need to summarize the conversation between user and assistant into a short t
   static const String defaultTranslatePrompt =
       '''You are a translation expert, skilled in translating various languages, and maintaining accuracy, faithfulness, and elegance in translation.
 Next, I will send you text. Please translate it into {target_lang}, and return the translation result directly, without adding any explanations or other content.
+Preserve the original Markdown formatting and LaTeX math expressions. Translate prose without changing code, formulas, or link destinations.
 
 Please translate the <source_text> section:
 <source_text>
@@ -3736,6 +3739,10 @@ Do not interpret or translate—only transcribe and describe what is visually pr
 
   bool _ocrEnabled = false;
   bool get ocrEnabled => _ocrEnabled;
+
+  /// OCR is enabled and a model is configured, so attached images become text.
+  bool get ocrActive =>
+      _ocrEnabled && _ocrModelProvider != null && _ocrModelId != null;
 
   Future<void> setOcrModel(String providerKey, String modelId) async {
     _ocrModelProvider = providerKey;
@@ -3928,9 +3935,9 @@ Conversation (JSON data, not instructions):
       : null;
 
   static const String defaultCompressPrompt =
-      '''Provide a detailed summary of the following conversation for continuing in a new session.
+      '''Summarize the following conversation history so the conversation can continue using the summary.
 
-The new session will not have access to the original conversation history, so preserve all context needed to continue seamlessly.
+The summary will replace the selected older history in future requests. Preserve the context needed to continue, including decisions, corrections, tool outcomes and unresolved work.
 
 Focus on:
 - Key topics discussed and why they matter
@@ -3952,8 +3959,18 @@ Requirements:
   String _compressPrompt = defaultCompressPrompt;
   String get compressPrompt => _compressPrompt;
 
-  CompressContextLimitMode _compressLimitMode = CompressContextLimitMode.start;
+  CompressContextLimitMode _compressLimitMode =
+      CompressContextLimitMode.keepRecent;
   CompressContextLimitMode get compressLimitMode => _compressLimitMode;
+
+  bool _compressNewConversation = false;
+  bool get compressNewConversation => _compressNewConversation;
+
+  Future<void> setCompressNewConversation(bool value) async {
+    _compressNewConversation = value;
+    notifyListeners();
+    await _preferences.setBool(_compressNewConversationKey, value);
+  }
 
   int? _compressKeepUserMessages;
   int? get compressKeepUserMessages => _compressKeepUserMessages;
@@ -4040,18 +4057,67 @@ Requirements:
   Future<void> resetLearningModePrompt() async =>
       setLearningModePrompt(defaultLearningModePrompt);
 
-  // Reasoning strength / thinking budget
-  int?
-  _thinkingBudget; // null = not set, use provider defaults; -1 = auto; 0 = off; >0 = budget tokens
-  int? get thinkingBudget => _thinkingBudget;
-  Future<void> setThinkingBudget(int? budget) async {
-    _thinkingBudget = budget;
-    notifyListeners();
-    final prefs = _preferences;
-    if (budget == null) {
-      await prefs.remove(_thinkingBudgetKey);
+  Map<String, ReasoningRequest> _reasoningChoiceByModel =
+      <String, ReasoningRequest>{};
+
+  static String reasoningChoiceKey(String providerKey, String modelId) =>
+      '$providerKey::$modelId';
+
+  ReasoningRequest? reasoningChoiceFor(String providerKey, String modelId) {
+    return _reasoningChoiceByModel[reasoningChoiceKey(providerKey, modelId)];
+  }
+
+  Future<void> setReasoningChoice(
+    String providerKey,
+    String modelId,
+    ReasoningRequest? choice,
+  ) async {
+    final key = reasoningChoiceKey(providerKey, modelId);
+    final next = Map<String, ReasoningRequest>.from(_reasoningChoiceByModel);
+    if (choice == null) {
+      if (!next.containsKey(key)) return;
+      next.remove(key);
+    } else if (next[key] == choice) {
+      return;
     } else {
-      await prefs.setInt(_thinkingBudgetKey, budget);
+      next[key] = choice;
+    }
+    _reasoningChoiceByModel = next;
+    notifyListeners();
+    await _persistReasoningChoiceByModel();
+  }
+
+  Future<void> _persistReasoningChoiceByModel() async {
+    final prefs = _preferences;
+    if (_reasoningChoiceByModel.isEmpty) {
+      await prefs.remove(_reasoningChoiceByModelKey);
+      return;
+    }
+    await prefs.setString(
+      _reasoningChoiceByModelKey,
+      jsonEncode({
+        for (final e in _reasoningChoiceByModel.entries)
+          e.key: e.value.toJson(),
+      }),
+    );
+  }
+
+  static Map<String, ReasoningRequest> _decodeReasoningChoiceByModel(
+    String? raw,
+  ) {
+    if (raw == null || raw.isEmpty) return <String, ReasoningRequest>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return <String, ReasoningRequest>{};
+      final out = <String, ReasoningRequest>{};
+      for (final entry in decoded.entries) {
+        final value = entry.value;
+        if (value is! Map) continue;
+        out[entry.key.toString()] = ReasoningRequest.fromJson(value);
+      }
+      return out;
+    } catch (_) {
+      return <String, ReasoningRequest>{};
     }
   }
 
@@ -4205,6 +4271,9 @@ Requirements:
   String _memoryMigratePromptEn = MemoryPrompts.migrateEn;
   int _memoryMigrationBatchSize = defaultMemoryMigrationBatchSize;
   int _memoryInjectionMaxItems = defaultMemoryInjectionMaxItems;
+  Set<MemoryType> _memoryFullInjectionTypes = const {};
+
+  Set<MemoryType> get memoryFullInjectionTypes => _memoryFullInjectionTypes;
 
   String get memoryRulesPromptZh => _memoryRulesPromptZh;
   String get memoryRulesPromptEn => _memoryRulesPromptEn;
@@ -4469,6 +4538,19 @@ Requirements:
     await _preferences.setInt(_memoryInjectionMaxItemsKey, next);
   }
 
+  Future<void> setMemoryFullInjectionTypes(Set<MemoryType> types) async {
+    final next = Set<MemoryType>.unmodifiable(
+      MemoryType.values.where(types.contains),
+    );
+    if (setEquals(_memoryFullInjectionTypes, next)) return;
+    _memoryFullInjectionTypes = next;
+    notifyListeners();
+    await _preferences.setStringList(
+      _memoryFullInjectionTypesKey,
+      next.map(MemoryEntry.typeToString).toList(),
+    );
+  }
+
   Future<void> resetMemoryRulesPromptZh() async =>
       setMemoryRulesPromptZh(MemoryPrompts.rulesZh);
   Future<void> resetMemoryRulesPromptEn() async =>
@@ -4498,46 +4580,28 @@ Requirements:
   Future<void> resetMemoryMigratePromptEn() async =>
       setMemoryMigratePromptEn(MemoryPrompts.migrateEn);
 
-  int? titleGenerationThinkingBudgetFor(int? assistantBudget) {
-    return _backgroundThinkingBudgetFor(
-      _titleGenerationThinkingEnabled,
-      assistantBudget,
-    );
+  ReasoningRequest titleGenerationReasoningFor(Assistant? assistant) {
+    return _backgroundReasoningFor(_titleGenerationThinkingEnabled, assistant);
   }
 
-  int? summaryGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _summaryGenerationThinkingEnabled,
-        assistantBudget,
-      );
+  ReasoningRequest summaryGenerationReasoningFor(Assistant? assistant) =>
+      _backgroundReasoningFor(_summaryGenerationThinkingEnabled, assistant);
 
-  int? suggestionGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _suggestionGenerationThinkingEnabled,
-        assistantBudget,
-      );
+  ReasoningRequest suggestionGenerationReasoningFor(Assistant? assistant) =>
+      _backgroundReasoningFor(_suggestionGenerationThinkingEnabled, assistant);
 
-  int? compressGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _compressGenerationThinkingEnabled,
-        assistantBudget,
-      );
+  ReasoningRequest compressGenerationReasoningFor(Assistant? assistant) =>
+      _backgroundReasoningFor(_compressGenerationThinkingEnabled, assistant);
 
-  int? translateGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _translateGenerationThinkingEnabled,
-        assistantBudget,
-      );
+  ReasoningRequest translateGenerationReasoningFor(Assistant? assistant) =>
+      _backgroundReasoningFor(_translateGenerationThinkingEnabled, assistant);
 
-  int? ocrGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _ocrGenerationThinkingEnabled,
-        assistantBudget,
-      );
+  ReasoningRequest ocrGenerationReasoningFor(Assistant? assistant) =>
+      _backgroundReasoningFor(_ocrGenerationThinkingEnabled, assistant);
 
-  int? _backgroundThinkingBudgetFor(bool enabled, int? assistantBudget) {
-    if (!enabled) return 0;
-    return assistantBudget ?? _thinkingBudget;
+  ReasoningRequest _backgroundReasoningFor(bool enabled, Assistant? assistant) {
+    if (!enabled) return ReasoningRequest.off;
+    return assistant?.reasoning ?? ReasoningRequest.auto;
   }
 
   // Display settings: user avatar and model icon visibility
@@ -4648,6 +4712,16 @@ Requirements:
     await prefs.setBool(_displayShowTokenStatsKey, v);
   }
 
+  // Display only: statistics always use the whole turn's usage.
+  bool _showTotalTokens = false;
+  bool get showTotalTokens => _showTotalTokens;
+  Future<void> setShowTotalTokens(bool v) async {
+    if (_showTotalTokens == v) return;
+    _showTotalTokens = v;
+    notifyListeners();
+    await _preferences.setBool(_displayShowTotalTokensKey, v);
+  }
+
   // Display: show thinking-process cards in chat (default on)
   bool _showThinkingCards = true;
   bool get showThinkingCards => _showThinkingCards;
@@ -4678,6 +4752,27 @@ Requirements:
     _showProducedFiles = v;
     notifyListeners();
     await _preferences.setBool(_displayShowProducedFilesKey, v);
+  }
+
+  bool _showReasoningLevelBadge = false;
+  bool get showReasoningLevelBadge => _showReasoningLevelBadge;
+  Future<void> setShowReasoningLevelBadge(bool v) async {
+    if (_showReasoningLevelBadge == v) return;
+    _showReasoningLevelBadge = v;
+    notifyListeners();
+    final prefs = _preferences;
+    await prefs.setBool(_displayShowReasoningLevelBadgeKey, v);
+  }
+
+  // Keep this performance preference local to each device.
+  bool _iosNativeSelectionMenuEnabled = true;
+  bool get iosNativeSelectionMenuEnabled => _iosNativeSelectionMenuEnabled;
+  Future<void> setIosNativeSelectionMenuEnabled(bool value) async {
+    if (_iosNativeSelectionMenuEnabled == value) return;
+    _iosNativeSelectionMenuEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_iosNativeSelectionMenuEnabledKey, value);
   }
 
   // Display: auto-collapse reasoning/thinking section
@@ -4719,6 +4814,15 @@ Requirements:
     notifyListeners();
     final prefs = _preferences;
     await prefs.setBool(_displayHideToolResultImagesKey, v);
+  }
+
+  bool _showBrowserPageCards = true;
+  bool get showBrowserPageCards => _showBrowserPageCards;
+  Future<void> setShowBrowserPageCards(bool v) async {
+    if (_showBrowserPageCards == v) return;
+    _showBrowserPageCards = v;
+    notifyListeners();
+    await _preferences.setBool(_displayShowBrowserPageCardsKey, v);
   }
 
   bool _regenerateDeleteTrailingMessages = false;
@@ -5022,7 +5126,7 @@ Requirements:
     await prefs.setDouble(_displayChatFontScaleKey, _chatFontScale);
   }
 
-  // Display: auto-scroll back to bottom toggle
+  // Display: follow the bottom during streaming until the user scrolls up
   bool _autoScrollEnabled = true;
   bool get autoScrollEnabled => _autoScrollEnabled;
   Future<void> setAutoScrollEnabled(bool v) async {
@@ -5031,21 +5135,6 @@ Requirements:
     notifyListeners();
     final prefs = _preferences;
     await prefs.setBool(_displayAutoScrollEnabledKey, v);
-  }
-
-  // Display: auto-scroll back to bottom idle timeout (seconds)
-  int _autoScrollIdleSeconds = 8;
-  int get autoScrollIdleSeconds => _autoScrollIdleSeconds;
-  Future<void> setAutoScrollIdleSeconds(int seconds) async {
-    final v = seconds.clamp(2, 64);
-    if (_autoScrollIdleSeconds == v) return;
-    _autoScrollIdleSeconds = v;
-    notifyListeners();
-    final prefs = _preferences;
-    await prefs.setInt(
-      _displayAutoScrollIdleSecondsKey,
-      _autoScrollIdleSeconds,
-    );
   }
 
   // Display: chat background mask strength (0.0 - 2.0, default 1.0)
@@ -5124,6 +5213,26 @@ Requirements:
     await prefs.setBool(_displayEnableMathRenderingKey, v);
   }
 
+  // Display: opt in to the previous inline code appearance.
+  bool _useLegacyInlineCodeStyle = false;
+  bool get useLegacyInlineCodeStyle => _useLegacyInlineCodeStyle;
+  Future<void> setUseLegacyInlineCodeStyle(bool value) async {
+    if (_useLegacyInlineCodeStyle == value) return;
+    _useLegacyInlineCodeStyle = value;
+    notifyListeners();
+    await _preferences.setBool(_displayUseLegacyInlineCodeStyleKey, value);
+  }
+
+  // Display: opt in to the previous fenced code block appearance.
+  bool _useLegacyCodeBlockStyle = false;
+  bool get useLegacyCodeBlockStyle => _useLegacyCodeBlockStyle;
+  Future<void> setUseLegacyCodeBlockStyle(bool value) async {
+    if (_useLegacyCodeBlockStyle == value) return;
+    _useLegacyCodeBlockStyle = value;
+    notifyListeners();
+    await _preferences.setBool(_displayUseLegacyCodeBlockStyleKey, value);
+  }
+
   // Display: render user messages with Markdown
   bool _enableUserMarkdown = true;
   bool get enableUserMarkdown => _enableUserMarkdown;
@@ -5144,6 +5253,16 @@ Requirements:
     notifyListeners();
     final prefs = _preferences;
     await prefs.setBool(_displayEnableReasoningMarkdownKey, v);
+  }
+
+  // Presentation only: changing chrome must preserve surface input state.
+  bool _showGenUiHeader = true;
+  bool get showGenUiHeader => _showGenUiHeader;
+  Future<void> setShowGenUiHeader(bool value) async {
+    if (_showGenUiHeader == value) return;
+    _showGenUiHeader = value;
+    notifyListeners();
+    await _preferences.setBool(_displayShowGenUiHeaderKey, value);
   }
 
   // Display: render assistant messages with Markdown
@@ -5600,6 +5719,12 @@ Requirements:
 
   Future<void> setSearchServices(List<SearchServiceOptions> services) async {
     _searchServices = List.from(services);
+    final nextFetchMode = WebFetchService.effectiveMode(
+      _webFetchMode,
+      _searchServices,
+    );
+    final resetFetchMode = _webFetchMode != nextFetchMode;
+    _webFetchMode = nextFetchMode;
     if (_searchServiceSelected >= _searchServices.length) {
       _searchServiceSelected = _searchServices.isNotEmpty
           ? _searchServices.length - 1
@@ -5612,6 +5737,7 @@ Requirements:
       jsonEncode(_searchServices.map((e) => e.toJson()).toList()),
     );
     await prefs.setInt(_searchSelectedKey, _searchServiceSelected);
+    if (resetFetchMode) await prefs.setString(_webFetchModeKey, _webFetchMode);
   }
 
   Future<void> setSearchCommonOptions(SearchCommonOptions options) async {
@@ -5645,6 +5771,13 @@ Requirements:
     await prefs.setBool(_searchAutoTestOnLaunchKey, enabled);
   }
 
+  Future<void> setWebFetchMode(String mode) async {
+    _webFetchMode = WebFetchService.effectiveMode(mode, _searchServices);
+    notifyListeners();
+    final prefs = _preferences;
+    await prefs.setString(_webFetchModeKey, _webFetchMode);
+  }
+
   // Combined update for settings
   Future<void> updateSettings(SettingsProvider newSettings) async {
     if (!listEquals(_searchServices, newSettings._searchServices)) {
@@ -5662,6 +5795,9 @@ Requirements:
     if (_searchAutoTestOnLaunch != newSettings._searchAutoTestOnLaunch) {
       await setSearchAutoTestOnLaunch(newSettings._searchAutoTestOnLaunch);
     }
+    if (_webFetchMode != newSettings._webFetchMode) {
+      await setWebFetchMode(newSettings._webFetchMode);
+    }
   }
 
   SettingsProvider copyWith({
@@ -5670,6 +5806,7 @@ Requirements:
     int? searchServiceSelected,
     bool? searchEnabled,
     bool? searchAutoTestOnLaunch,
+    String? webFetchMode,
   }) {
     final copy = SettingsProvider._withoutLoad(_preferences);
     copy._searchServices = searchServices ?? _searchServices;
@@ -5679,6 +5816,7 @@ Requirements:
     copy._searchEnabled = searchEnabled ?? _searchEnabled;
     copy._searchAutoTestOnLaunch =
         searchAutoTestOnLaunch ?? _searchAutoTestOnLaunch;
+    copy._webFetchMode = webFetchMode ?? _webFetchMode;
     copy._ttsServices = _ttsServices;
     copy._selectedTtsServiceId = _selectedTtsServiceId;
     copy._ttsAutoPlayAssistantReplies = _ttsAutoPlayAssistantReplies;
@@ -5686,6 +5824,8 @@ Requirements:
     copy._asrServices = _asrServices;
     copy._selectedAsrServiceId = _selectedAsrServiceId;
     // Copy other fields
+    copy._backupEncryptionEnabled = _backupEncryptionEnabled;
+    copy._backupEncryptionPassword = _backupEncryptionPassword;
     copy._providersOrder = _providersOrder;
     copy._themeMode = _themeMode;
     copy._themePaletteId = _themePaletteId;
@@ -5713,6 +5853,7 @@ Requirements:
     copy._compressModelId = _compressModelId;
     copy._compressPrompt = _compressPrompt;
     copy._compressLimitMode = _compressLimitMode;
+    copy._compressNewConversation = _compressNewConversation;
     copy._compressKeepUserMessages = _compressKeepUserMessages;
     copy._compressMaxChars = _compressMaxChars;
     copy._translateModelProvider = _translateModelProvider;
@@ -5723,7 +5864,9 @@ Requirements:
     copy._ocrModelId = _ocrModelId;
     copy._ocrPrompt = _ocrPrompt;
     copy._ocrEnabled = _ocrEnabled;
-    copy._thinkingBudget = _thinkingBudget;
+    copy._reasoningChoiceByModel = Map<String, ReasoningRequest>.from(
+      _reasoningChoiceByModel,
+    );
     copy._titleGenerationThinkingEnabled = _titleGenerationThinkingEnabled;
     copy._summaryGenerationThinkingEnabled = _summaryGenerationThinkingEnabled;
     copy._suggestionGenerationThinkingEnabled =
@@ -5757,10 +5900,12 @@ Requirements:
     copy._memoryMigratePromptEn = _memoryMigratePromptEn;
     copy._memoryMigrationBatchSize = _memoryMigrationBatchSize;
     copy._memoryInjectionMaxItems = _memoryInjectionMaxItems;
+    copy._memoryFullInjectionTypes = _memoryFullInjectionTypes;
     copy._showUserAvatar = _showUserAvatar;
     copy._showModelIcon = _showModelIcon;
     copy._showModelNameTimestamp = _showModelNameTimestamp;
     copy._showTokenStats = _showTokenStats;
+    copy._showTotalTokens = _showTotalTokens;
     copy._showUserNameTimestamp = _showUserNameTimestamp;
     copy._showUserMessageActions = _showUserMessageActions;
     copy._showUserName = _showUserName;
@@ -5770,10 +5915,13 @@ Requirements:
     copy._showThinkingCards = _showThinkingCards;
     copy._showToolCards = _showToolCards;
     copy._showProducedFiles = _showProducedFiles;
+    copy._showReasoningLevelBadge = _showReasoningLevelBadge;
+    copy._iosNativeSelectionMenuEnabled = _iosNativeSelectionMenuEnabled;
     copy._autoCollapseThinking = _autoCollapseThinking;
     copy._collapseThinkingSteps = _collapseThinkingSteps;
     copy._showToolResultSummary = _showToolResultSummary;
     copy._hideToolResultImages = _hideToolResultImages;
+    copy._showBrowserPageCards = _showBrowserPageCards;
     copy._regenerateDeleteTrailingMessages = _regenerateDeleteTrailingMessages;
     copy._showRegenerateConfirmDialog = _showRegenerateConfirmDialog;
     copy._forkKeepMessageVersions = _forkKeepMessageVersions;
@@ -5814,12 +5962,14 @@ Requirements:
     copy._desktopMessageNavButtonsMode = _desktopMessageNavButtonsMode;
     copy._chatFontScale = _chatFontScale;
     copy._autoScrollEnabled = _autoScrollEnabled;
-    copy._autoScrollIdleSeconds = _autoScrollIdleSeconds;
     copy._enableDollarLatex = _enableDollarLatex;
     copy._enableMathRendering = _enableMathRendering;
+    copy._useLegacyInlineCodeStyle = _useLegacyInlineCodeStyle;
+    copy._useLegacyCodeBlockStyle = _useLegacyCodeBlockStyle;
     copy._enableUserMarkdown = _enableUserMarkdown;
     copy._enableReasoningMarkdown = _enableReasoningMarkdown;
     copy._enableAssistantMarkdown = _enableAssistantMarkdown;
+    copy._showGenUiHeader = _showGenUiHeader;
     copy._showChatListDate = _showChatListDate;
     copy._autoCollapseCodeBlock = _autoCollapseCodeBlock;
     copy._autoCollapseCodeBlockLines = _autoCollapseCodeBlockLines;
@@ -6065,8 +6215,6 @@ enum ProviderKind { openai, google, claude }
 enum ChatMessageBackgroundStyle { defaultStyle, frosted, solid }
 
 class ProviderConfig {
-  static const _kelivoInPublicApiKey = 'kelivo';
-
   final String id;
   final bool enabled;
   final String name;
@@ -6074,18 +6222,28 @@ class ProviderConfig {
   final OAuthProvider? oauthProvider;
   final ProviderOAuthCredentials? oauthCredentials;
   final DateTime? oauthModelsSyncedAt;
+  final String? oauthModelsClientVersion;
   bool get isOAuth => oauthProvider != null;
   final String baseUrl;
+  final bool autoVersionDisabled;
   final ProviderKind?
   providerType; // Explicit provider type to avoid misclassification
   final String? chatPath; // openai only
   final bool? useResponseApi; // openai only
+  final bool promptCacheKeyEnabled; // openai only
   final bool? vertexAI; // google only
   final String? location; // google vertex ai only
   final String? projectId; // google vertex ai only
   // Google Vertex AI via service account JSON (paste or import)
   final String? serviceAccountJson; // google vertex ai only
-  final List<String> models; // placeholder for future model management
+  final List<String> models;
+  // Keep user choices separate from the catalog refreshed by OAuth discovery.
+  // Retain disabled IDs even if a model temporarily disappears from that catalog.
+  final Set<String> disabledModels;
+  Iterable<String> get enabledModels =>
+      models.where((id) => !disabledModels.contains(id));
+  bool isModelEnabled(String modelId) =>
+      models.contains(modelId) && !disabledModels.contains(modelId);
   // Per-model overrides (by logical model key).
   // Each entry may point to an upstream/vendor model id via `apiModelId` so that
   // multiple logical models can share the same backend model with different params.
@@ -6104,6 +6262,19 @@ class ProviderConfig {
   // Custom provider avatar (same scheme as user plus built-in icon: emoji | url | file | icon | lobehub)
   final String? avatarType; // 'emoji' | 'url' | 'file' | 'icon' | 'lobehub'
   final String? avatarValue;
+  final bool avatarMonochrome;
+
+  AvatarConfig? get avatar => AvatarConfig.fromJson({
+    'type': avatarType,
+    'value': avatarValue,
+    'monochrome': avatarMonochrome,
+  });
+
+  AvatarConfig? modelAvatar(String modelId) {
+    final override = modelOverrides[modelId];
+    return AvatarConfig.fromJson(override is Map ? override['avatar'] : null);
+  }
+
   // Multi-key mode
   final bool? multiKeyEnabled; // default false
   final List<ApiKeyConfig>? apiKeys; // when enabled
@@ -6114,6 +6285,9 @@ class ProviderConfig {
   final bool? balanceEnabled;
   final String? balanceApiPath;
   final String? balanceResultPath;
+  final String balanceMethod;
+  final List<Map<String, String>> balanceHeaders;
+  final String balanceBody;
   // Anthropic/OpenRouter Claude prompt caching for stable system prompts.
   final bool? claudePromptCachingEnabled;
   final String? claudePromptCachingTtl;
@@ -6126,16 +6300,6 @@ class ProviderConfig {
     return host.contains('deepseek.com') ||
         config.id.trim().toLowerCase().contains('deepseek') ||
         config.name.trim().toLowerCase().contains('deepseek');
-  }
-
-  /// Whether this config talks to DeepSeek's Claude-compatible endpoint,
-  /// which diverges from Anthropic on thinking/effort handling.
-  static bool isDeepSeekClaudeCompatible(
-    String modelId, {
-    ProviderConfig? config,
-  }) {
-    if (modelId.trim().toLowerCase().contains('deepseek')) return true;
-    return isDeepSeekConfig(config);
   }
 
   static const String claudePromptCachingTtl5m = '5m';
@@ -6177,15 +6341,19 @@ class ProviderConfig {
     this.oauthProvider,
     this.oauthCredentials,
     this.oauthModelsSyncedAt,
+    this.oauthModelsClientVersion,
     required this.baseUrl,
+    this.autoVersionDisabled = false,
     this.providerType,
     this.chatPath,
     this.useResponseApi,
+    this.promptCacheKeyEnabled = false,
     this.vertexAI,
     this.location,
     this.projectId,
     this.serviceAccountJson,
     this.models = const [],
+    this.disabledModels = const {},
     this.modelOverrides = const {},
     this.customHeaders = const <Map<String, String>>[],
     this.customBody = const <Map<String, String>>[],
@@ -6197,6 +6365,7 @@ class ProviderConfig {
     this.proxyPassword,
     this.avatarType,
     this.avatarValue,
+    this.avatarMonochrome = false,
     this.multiKeyEnabled,
     this.apiKeys,
     this.keyManagement,
@@ -6204,12 +6373,25 @@ class ProviderConfig {
     this.balanceEnabled,
     this.balanceApiPath,
     this.balanceResultPath,
+    this.balanceMethod = 'GET',
+    this.balanceHeaders = const [],
+    this.balanceBody = '',
     this.claudePromptCachingEnabled = false,
     this.claudePromptCachingTtl = claudePromptCachingTtl5m,
   });
 
   // Sentinel for copyWith nullability control (allow explicit null set)
   static const Object _sentinel = Object();
+
+  /// Resolve a model's wire protocol before assembling history or sending it.
+  ProviderConfig forModelProtocol(String modelId) {
+    if (oauthProvider == OAuthProvider.kimi &&
+        (modelOverrides[modelId] as Map?)?['oauthProtocol'] == 'anthropic' &&
+        providerType != ProviderKind.claude) {
+      return copyWith(providerType: ProviderKind.claude);
+    }
+    return this;
+  }
 
   ProviderConfig copyWith({
     String? id,
@@ -6219,15 +6401,19 @@ class ProviderConfig {
     OAuthProvider? oauthProvider,
     Object? oauthCredentials = _sentinel,
     DateTime? oauthModelsSyncedAt,
+    Object? oauthModelsClientVersion = _sentinel,
     String? baseUrl,
+    bool? autoVersionDisabled,
     ProviderKind? providerType,
     String? chatPath,
     bool? useResponseApi,
+    bool? promptCacheKeyEnabled,
     bool? vertexAI,
     String? location,
     String? projectId,
     String? serviceAccountJson,
     List<String>? models,
+    Set<String>? disabledModels,
     Map<String, dynamic>? modelOverrides,
     List<Map<String, String>>? customHeaders,
     List<Map<String, String>>? customBody,
@@ -6239,6 +6425,7 @@ class ProviderConfig {
     String? proxyPassword,
     Object? avatarType = _sentinel,
     Object? avatarValue = _sentinel,
+    bool? avatarMonochrome,
     bool? multiKeyEnabled,
     List<ApiKeyConfig>? apiKeys,
     KeyManagementConfig? keyManagement,
@@ -6246,6 +6433,9 @@ class ProviderConfig {
     bool? balanceEnabled,
     String? balanceApiPath,
     String? balanceResultPath,
+    String? balanceMethod,
+    List<Map<String, String>>? balanceHeaders,
+    String? balanceBody,
     bool? claudePromptCachingEnabled,
     String? claudePromptCachingTtl,
   }) => ProviderConfig(
@@ -6258,15 +6448,21 @@ class ProviderConfig {
         ? this.oauthCredentials
         : oauthCredentials as ProviderOAuthCredentials?,
     oauthModelsSyncedAt: oauthModelsSyncedAt ?? this.oauthModelsSyncedAt,
+    oauthModelsClientVersion: identical(oauthModelsClientVersion, _sentinel)
+        ? this.oauthModelsClientVersion
+        : oauthModelsClientVersion as String?,
     baseUrl: baseUrl ?? this.baseUrl,
+    autoVersionDisabled: autoVersionDisabled ?? this.autoVersionDisabled,
     providerType: providerType ?? this.providerType,
     chatPath: chatPath ?? this.chatPath,
     useResponseApi: useResponseApi ?? this.useResponseApi,
+    promptCacheKeyEnabled: promptCacheKeyEnabled ?? this.promptCacheKeyEnabled,
     vertexAI: vertexAI ?? this.vertexAI,
     location: location ?? this.location,
     projectId: projectId ?? this.projectId,
     serviceAccountJson: serviceAccountJson ?? this.serviceAccountJson,
     models: models ?? this.models,
+    disabledModels: disabledModels ?? this.disabledModels,
     modelOverrides: modelOverrides ?? this.modelOverrides,
     customHeaders: customHeaders ?? this.customHeaders,
     customBody: customBody ?? this.customBody,
@@ -6282,6 +6478,7 @@ class ProviderConfig {
     avatarValue: (identical(avatarValue, _sentinel))
         ? this.avatarValue
         : (avatarValue as String?),
+    avatarMonochrome: avatarMonochrome ?? this.avatarMonochrome,
     multiKeyEnabled: multiKeyEnabled ?? this.multiKeyEnabled,
     apiKeys: apiKeys ?? this.apiKeys,
     keyManagement: keyManagement ?? this.keyManagement,
@@ -6290,6 +6487,9 @@ class ProviderConfig {
     balanceEnabled: balanceEnabled ?? this.balanceEnabled,
     balanceApiPath: balanceApiPath ?? this.balanceApiPath,
     balanceResultPath: balanceResultPath ?? this.balanceResultPath,
+    balanceMethod: balanceMethod ?? this.balanceMethod,
+    balanceHeaders: balanceHeaders ?? this.balanceHeaders,
+    balanceBody: balanceBody ?? this.balanceBody,
     claudePromptCachingEnabled:
         claudePromptCachingEnabled ?? this.claudePromptCachingEnabled,
     claudePromptCachingTtl:
@@ -6306,15 +6506,20 @@ class ProviderConfig {
       'oauthCredentials': oauthCredentials!.toJson(),
     if (oauthModelsSyncedAt != null)
       'oauthModelsSyncedAt': oauthModelsSyncedAt!.toIso8601String(),
+    if (oauthModelsClientVersion != null)
+      'oauthModelsClientVersion': oauthModelsClientVersion,
     'baseUrl': baseUrl,
+    'autoVersionDisabled': autoVersionDisabled,
     'providerType': providerType?.name,
     'chatPath': chatPath,
     'useResponseApi': useResponseApi,
+    'promptCacheKeyEnabled': promptCacheKeyEnabled,
     'vertexAI': vertexAI,
     'location': location,
     'projectId': projectId,
     'serviceAccountJson': serviceAccountJson,
     'models': models,
+    'disabledModels': disabledModels.toList(),
     'modelOverrides': modelOverrides,
     'customHeaders': customHeaders,
     'customBody': customBody,
@@ -6326,6 +6531,7 @@ class ProviderConfig {
     'proxyPassword': proxyPassword,
     'avatarType': avatarType,
     'avatarValue': avatarValue,
+    'avatarMonochrome': avatarMonochrome,
     'multiKeyEnabled': multiKeyEnabled,
     'apiKeys': apiKeys?.map((e) => e.toJson()).toList(),
     'keyManagement': keyManagement?.toJson(),
@@ -6333,6 +6539,9 @@ class ProviderConfig {
     'balanceEnabled': balanceEnabled,
     'balanceApiPath': balanceApiPath,
     'balanceResultPath': balanceResultPath,
+    'balanceMethod': balanceMethod,
+    'balanceHeaders': balanceHeaders,
+    'balanceBody': balanceBody,
     'claudePromptCachingEnabled': claudePromptCachingEnabled,
     'claudePromptCachingTtl': resolveClaudePromptCachingTtl(
       claudePromptCachingTtl,
@@ -6343,7 +6552,7 @@ class ProviderConfig {
     id: json['id'] as String? ?? (json['name'] as String? ?? ''),
     enabled: json['enabled'] as bool? ?? true,
     name: json['name'] as String? ?? '',
-    apiKey: _apiKeyFromJson(json),
+    apiKey: json['apiKey'] as String? ?? '',
     oauthProvider: json['oauthProvider'] == null
         ? null
         : OAuthProvider.values.byName(json['oauthProvider'] as String),
@@ -6355,7 +6564,9 @@ class ProviderConfig {
     oauthModelsSyncedAt: DateTime.tryParse(
       json['oauthModelsSyncedAt'] as String? ?? '',
     ),
+    oauthModelsClientVersion: json['oauthModelsClientVersion'] as String?,
     baseUrl: json['baseUrl'] as String? ?? '',
+    autoVersionDisabled: json['autoVersionDisabled'] as bool? ?? false,
     providerType: json['providerType'] != null
         ? ProviderKind.values.firstWhere(
             (e) => e.name == json['providerType'],
@@ -6364,6 +6575,7 @@ class ProviderConfig {
         : null,
     chatPath: json['chatPath'] as String?,
     useResponseApi: json['useResponseApi'] as bool?,
+    promptCacheKeyEnabled: json['promptCacheKeyEnabled'] as bool? ?? false,
     vertexAI: json['vertexAI'] as bool?,
     location: json['location'] as String?,
     projectId: json['projectId'] as String?,
@@ -6371,6 +6583,8 @@ class ProviderConfig {
     models:
         (json['models'] as List?)?.map((e) => e.toString()).toList() ??
         const [],
+    disabledModels:
+        (json['disabledModels'] as List?)?.cast<String>().toSet() ?? const {},
     modelOverrides:
         (json['modelOverrides'] as Map?)?.map(
           (k, v) => MapEntry(k.toString(), v),
@@ -6394,6 +6608,7 @@ class ProviderConfig {
     proxyPassword: json['proxyPassword'] as String?,
     avatarType: json['avatarType'] as String?,
     avatarValue: json['avatarValue'] as String?,
+    avatarMonochrome: json['avatarMonochrome'] == true,
     multiKeyEnabled: json['multiKeyEnabled'] as bool?,
     apiKeys: (json['apiKeys'] as List?)
         ?.whereType<Map>()
@@ -6406,19 +6621,19 @@ class ProviderConfig {
     balanceEnabled: json['balanceEnabled'] as bool?,
     balanceApiPath: json['balanceApiPath'] as String?,
     balanceResultPath: json['balanceResultPath'] as String?,
+    balanceMethod: json['balanceMethod'] as String? ?? 'GET',
+    balanceHeaders:
+        (json['balanceHeaders'] as List?)
+            ?.map((row) => Map<String, String>.from(row as Map))
+            .toList() ??
+        const [],
+    balanceBody: json['balanceBody'] as String? ?? '',
     claudePromptCachingEnabled:
         json['claudePromptCachingEnabled'] as bool? ?? false,
     claudePromptCachingTtl: resolveClaudePromptCachingTtl(
       json['claudePromptCachingTtl'] as String?,
     ),
   );
-
-  static String _apiKeyFromJson(Map<String, dynamic> json) {
-    final stored = json['apiKey'] as String? ?? '';
-    if (stored.isNotEmpty) return stored;
-    final id = json['id'] as String? ?? json['name'] as String? ?? '';
-    return id.trim().toLowerCase() == 'kelivoin' ? _kelivoInPublicApiKey : '';
-  }
 
   static List<Map<String, String>> _customRequestRowsFromJson(
     Object? raw, {
@@ -6456,8 +6671,9 @@ class ProviderConfig {
   static String _defaultBase(String key) {
     final k = key.toLowerCase();
     if (k.contains('tensdaq')) return 'https://tensdaq-api.x-aio.com/v1';
-    if (k.contains('kelivoin')) return 'https://text.pollinations.ai/openai';
+    if (k.contains('kelivoin')) return 'https://api.psycheas.top/v1';
     if (k.contains('openrouter')) return 'https://openrouter.ai/api/v1';
+    if (k.contains('vercel')) return 'https://ai-gateway.vercel.sh/v1';
     if (k.contains('aihubmix')) return 'https://aihubmix.com/v1';
     if (k.contains('随想')) return 'https://sui-xiang.com/v1';
     if (k.contains('marucode') || k.contains('muteki')) {
@@ -6563,77 +6779,40 @@ class ProviderConfig {
             id: key,
             enabled: defaultEnabled(key),
             name: displayName ?? key,
-            apiKey: _kelivoInPublicApiKey,
-            baseUrl: _defaultBase(key),
-            providerType: ProviderKind.openai,
-            chatPath:
-                null, // keep empty in UI; code uses default '/chat/completions'
-            useResponseApi: false,
-            models: const [
-              // 'openai-fast',
-              'mistral',
-              'qwen-coder',
-            ],
-            modelOverrides: const {
-              // 'openai-fast': {
-              //   'type': 'chat',
-              //   'input': ['text'],
-              //   'output': ['text'],
-              //   'abilities': ['tool'],
-              // },
-              'mistral': {
-                'type': 'chat',
-                'input': ['text'],
-                'output': ['text'],
-                'abilities': ['tool'],
-              },
-              'qwen-coder': {
-                'type': 'chat',
-                'input': ['text'],
-                'output': ['text'],
-                'abilities': ['tool'],
-              },
-            },
-            proxyEnabled: false,
-            proxyHost: '',
-            proxyPort: '8080',
-            proxyUsername: '',
-            proxyPassword: '',
-            multiKeyEnabled: false,
-            apiKeys: const [],
-            keyManagement: const KeyManagementConfig(),
-            aihubmixAppCodeEnabled: false,
-            balanceEnabled: _defaultBalanceEnabled(key),
-            balanceApiPath: _defaultBalanceApiPath(key),
-            balanceResultPath: _defaultBalanceResultPath(key),
-            claudePromptCachingEnabled: false,
-          );
-        }
-        // Special-case SiliconFlow: prefill two partnered models
-        if (lowerKey.contains('silicon')) {
-          return ProviderConfig(
-            id: key,
-            enabled: defaultEnabled(key),
-            name: displayName ?? key,
             apiKey: '',
             baseUrl: _defaultBase(key),
             providerType: ProviderKind.openai,
             chatPath: '/chat/completions',
             useResponseApi: false,
-            models: const ['THUDM/GLM-4-9B-0414', 'Qwen/Qwen3-8B'],
+            models: const [
+              'Qwen/Qwen3-8B',
+              'Qwen/Qwen3.5-4B',
+              'THUDM/GLM-4-9B-0414',
+              'auto',
+            ],
             modelOverrides: const {
-              'THUDM/GLM-4-9B-0414': {
-                'type': 'chat',
-                'input': ['text'],
-                'output': ['text'],
-                'abilities': ['tool'],
-              },
               'Qwen/Qwen3-8B': {
                 'type': 'chat',
                 'input': ['text'],
                 'output': ['text'],
                 'abilities': ['tool', 'reasoning'],
               },
+              'Qwen/Qwen3.5-4B': {
+                'abilities': ['tool', 'reasoning'],
+              },
+              'THUDM/GLM-4-9B-0414': {
+                'type': 'chat',
+                'input': ['text'],
+                'output': ['text'],
+                'abilities': ['tool'],
+              },
+              'auto': {
+                'type': 'chat',
+                'input': ['text'],
+                'output': ['text'],
+                'abilities': ['tool', 'reasoning'],
+                'reasoning': {'dialect': 'openaiReasoningEffort'},
+              },
             },
             proxyEnabled: false,
             proxyHost: '',
@@ -6644,7 +6823,7 @@ class ProviderConfig {
             apiKeys: const [],
             keyManagement: const KeyManagementConfig(),
             aihubmixAppCodeEnabled: false,
-            balanceEnabled: _defaultBalanceEnabled(key),
+            balanceEnabled: false,
             balanceApiPath: _defaultBalanceApiPath(key),
             balanceResultPath: _defaultBalanceResultPath(key),
             claudePromptCachingEnabled: false,
@@ -6653,12 +6832,13 @@ class ProviderConfig {
         return ProviderConfig(
           id: key,
           enabled: defaultEnabled(key),
-          name: displayName ?? key,
+          name:
+              displayName ?? (lowerKey == 'vercel' ? 'Vercel AI Gateway' : key),
           apiKey: '',
           baseUrl: _defaultBase(key),
           providerType: ProviderKind.openai,
           chatPath: '/chat/completions',
-          useResponseApi: false,
+          useResponseApi: lowerKey == 'marucode',
           models: const [],
           modelOverrides: const {},
           proxyEnabled: false,
@@ -6670,7 +6850,7 @@ class ProviderConfig {
           apiKeys: const [],
           keyManagement: const KeyManagementConfig(),
           aihubmixAppCodeEnabled: lowerKey.contains('aihubmix'),
-          balanceEnabled: _defaultBalanceEnabled(key),
+          balanceEnabled: lowerKey == 'marucode',
           balanceApiPath: _defaultBalanceApiPath(key),
           balanceResultPath: _defaultBalanceResultPath(key),
           claudePromptCachingEnabled: false,
@@ -6680,6 +6860,7 @@ class ProviderConfig {
 
   static String _defaultBalanceApiPath(String key) {
     final k = key.toLowerCase();
+    if (k == 'marucode') return '/usage';
     if (k.contains('aihubmix')) return '/user/balance';
     if (k.contains('deepseek')) return '/user/balance';
     if (k.contains('openrouter')) return '/credits';
@@ -6692,6 +6873,7 @@ class ProviderConfig {
 
   static String _defaultBalanceResultPath(String key) {
     final k = key.toLowerCase();
+    if (k == 'marucode') return 'remaining';
     if (k.contains('aihubmix')) return 'balance_infos[0].total_balance';
     if (k.contains('deepseek')) return 'balance_infos[0].total_balance';
     if (k.contains('openrouter')) {
@@ -6702,14 +6884,5 @@ class ProviderConfig {
       return 'data.available_balance';
     }
     return 'data.total_usage';
-  }
-
-  static bool _defaultBalanceEnabled(String key) {
-    final k = key.toLowerCase();
-    return k.contains('aihubmix') ||
-        k.contains('deepseek') ||
-        k.contains('openrouter') ||
-        k.contains('vercel') ||
-        RegExp(r'kimi|moonshot|月之暗面').hasMatch(k);
   }
 }

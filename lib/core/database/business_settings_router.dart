@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import '../models/assistant.dart';
 import 'business_data.dart';
 
 enum BusinessKeyDisposition {
@@ -28,7 +29,9 @@ final class BusinessKeyRegistry {
     'desktop_hotkeys_commands_v1',
     'desktop_hotkeys_enabled_v1',
     'display_chat_font_scale_v1',
+    'ios_native_selection_menu_enabled_v1',
     'flutter_log_enabled_v1',
+    'model_catalog_auto_update_v1',
   };
 
   static const discardedKeys = <String>{
@@ -44,6 +47,7 @@ final class BusinessKeyRegistry {
     'desktop_scheduled_tasks_v1',
     'scheduled_task_results_v1',
     'current_assistant_id_v1',
+    'orphaned_conversations_assistant_id_v1',
     'selected_model_v1',
     'per_chat_model_enabled_v1',
     'pinned_models_v1',
@@ -60,6 +64,7 @@ final class BusinessKeyRegistry {
     'search_selected_v1',
     'search_enabled_v1',
     'search_auto_test_on_launch_v1',
+    'search_web_fetch_v1',
     'tts_selected_v1',
     'tts_selected_service_id_v1',
     'tts_auto_play_assistant_replies_v1',
@@ -73,6 +78,7 @@ final class BusinessKeyRegistry {
     'asr_selected_service_id_v1',
     'webdav_config_v1',
     's3_config_v1',
+    'backup_encryption_enabled_v1',
     'backup_reminder_enabled_v1',
     'backup_reminder_interval_days_v1',
     'backup_reminder_minutes_of_day_v1',
@@ -108,7 +114,7 @@ final class BusinessKeyRegistry {
     'suggestion_insert_on_tap_only_v1',
     'compress_model_v1',
     'compress_prompt_v1',
-    'thinking_budget_v1',
+    'reasoning_choice_by_model_v1',
     'image_cropper_enabled_v1',
     'image_upload_quality_v1',
     'image_compress_custom_quality_v1',
@@ -118,6 +124,11 @@ final class BusinessKeyRegistry {
     'desktop_sidebar_width_v1',
     'desktop_sidebar_open_v1',
     'desktop_right_sidebar_width_v1',
+    'desktop_side_panel_open_v1',
+    'desktop_side_panel_width_v1',
+    'desktop_side_panel_last_kind_v1',
+    'desktop_side_panel_tabs_v1',
+    'desktop_side_panel_migrated_v1',
     'desktop_send_shortcut_v1',
     'android_background_chat_mode_v1',
     'ios_background_generation_enabled_v1',
@@ -145,6 +156,7 @@ final class BusinessKeyRegistry {
     'log_max_size_mb_v1',
     'app_launch_count_v1',
     'mcp_request_timeout_ms_v1',
+    'mcp_presentation_v1',
     'learning_mode_enabled_v1',
     'learning_mode_prompt_v1',
     'mobile_assistant_edit_tab_order_v1',
@@ -172,6 +184,7 @@ final class BusinessKeyRegistry {
     'memory_migrate_prompt_zh_v1',
     'memory_migrate_prompt_en_v1',
     'memory_migration_batch_size_v1',
+    'memory_full_injection_types_v1',
     'chat_bubble_style_overrides_v1',
     'chat_bubble_style_overrides_user_v1',
     'tool_schema_overrides_v1',
@@ -344,6 +357,9 @@ final class BusinessSettingsRouter {
                   ? projectedMemoryIds[row.id]!
                   : row.id;
             }
+            if (kind == BusinessEntityKind.assistant) {
+              _validateRuntimeAssistant(payload);
+            }
             return payload;
           }(),
       ]);
@@ -458,6 +474,9 @@ final class BusinessSettingsRouter {
     final id = hasPayloadId
         ? rawId.toString()
         : rowId ?? _stableGeneratedId(kind.sourceKey, index, payload);
+    if (kind == BusinessEntityKind.assistant) {
+      _validateRuntimeAssistant({...payload, 'id': id});
+    }
     String? assistantId;
     if (kind == BusinessEntityKind.assistantMemory) {
       final rawAssistantId = payload['assistantId'];
@@ -472,6 +491,20 @@ final class BusinessSettingsRouter {
       payload: jsonEncode(payload),
       assistantId: assistantId,
     );
+  }
+
+  // Validate with the same decoder used by AssistantProvider, before migration
+  // cleanup or exposing a startup snapshot. Keep the original payload intact,
+  // including unknown fields and IDs projected only for runtime use.
+  static void _validateRuntimeAssistant(Map<String, Object?> payload) {
+    try {
+      Assistant.fromJson(payload);
+    } catch (error) {
+      throw FormatException(
+        BusinessEntityKind.assistant.sourceKey,
+        'assistant=${payload['id']}; $error',
+      );
+    }
   }
 
   // Mirror runtime decoder cast boundaries without canonicalizing payloads.
@@ -513,16 +546,17 @@ final class BusinessSettingsRouter {
             'useIso8601TimeFormat',
             'allowConversationSystemPrompt',
             'allowConversationPromptInjection',
+            'allowConversationMcp',
           },
           numbers: const {
             'temperature',
             'topP',
             'contextMessageSize',
-            'thinkingBudget',
             'maxTokens',
             'recentChatsSummaryMessageCount',
             'memoryOrganizeEveryNTurns',
           },
+          maps: const {'reasoning'},
           lists: const {
             'customHeaders',
             'customBody',
@@ -547,6 +581,7 @@ final class BusinessSettingsRouter {
             'apiKey',
             'oauthProvider',
             'oauthModelsSyncedAt',
+            'oauthModelsClientVersion',
             'baseUrl',
             'chatPath',
             'location',
@@ -561,11 +596,14 @@ final class BusinessSettingsRouter {
             'avatarValue',
             'balanceApiPath',
             'balanceResultPath',
+            'balanceMethod',
+            'balanceBody',
             'claudePromptCachingTtl',
           },
           booleans: const {
             'enabled',
             'useResponseApi',
+            'promptCacheKeyEnabled',
             'vertexAI',
             'proxyEnabled',
             'multiKeyEnabled',
@@ -574,6 +612,7 @@ final class BusinessSettingsRouter {
             'claudePromptCachingEnabled',
           },
           lists: const {'models', 'apiKeys', 'customHeaders', 'customBody'},
+          objectLists: const {'balanceHeaders'},
           maps: const {'modelOverrides', 'keyManagement', 'oauthCredentials'},
         );
         _validateProviderChildren(kind, payload);
@@ -809,6 +848,19 @@ final class BusinessSettingsRouter {
     BusinessEntityKind kind,
     Map<String, Object?> payload,
   ) {
+    final balanceMethod = payload['balanceMethod'];
+    if (balanceMethod != null &&
+        balanceMethod != 'GET' &&
+        balanceMethod != 'POST') {
+      throw const FormatException('Invalid balance HTTP method');
+    }
+    for (final header in (payload['balanceHeaders'] as List?) ?? const []) {
+      final row = header as Map;
+      if (row.keys.any((key) => key is! String) ||
+          row.values.any((value) => value is! String)) {
+        throw const FormatException('Invalid balance request headers');
+      }
+    }
     final oauthProvider = payload['oauthProvider'];
     if (oauthProvider != null &&
         !{'chatgpt', 'grok', 'kimi', 'claude'}.contains(oauthProvider)) {
@@ -986,7 +1038,6 @@ final class BusinessSettingsRouter {
     );
     switch (payload['type']) {
       case 'bing_local':
-        _validateKnownFields(kind, payload, strings: const {'acceptLanguage'});
       case 'kelivo':
         break;
       case 'tavily':
@@ -998,10 +1049,18 @@ final class BusinessSettingsRouter {
           strings: const {'url'},
           stringLists: const {'apiKeys'},
         );
+      case 'exa_mcp':
+        _validateKnownFields(
+          kind,
+          payload,
+          strings: const {'apiKey', 'url'},
+          stringLists: const {'apiKeys'},
+        );
       case 'zhipu':
       case 'linkup':
       case 'metaso':
       case 'ollama':
+      case 'deepseek':
       case 'jina':
       case 'doubao':
       case 'kagi':

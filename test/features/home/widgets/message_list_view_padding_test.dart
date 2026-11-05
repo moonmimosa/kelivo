@@ -1,7 +1,11 @@
+import '../../../support/markdown_render_helpers.dart';
 import "../../../support/business_test_harness.dart";
 import 'dart:ui';
 
 import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/models/context_operation.dart';
+import 'package:Kelivo/core/models/context_compression_task.dart';
+import 'package:Kelivo/core/models/compress_context_options.dart';
 import 'package:Kelivo/core/providers/assistant_provider.dart';
 import 'package:Kelivo/core/providers/settings_provider.dart';
 import 'package:Kelivo/core/providers/tts_provider.dart';
@@ -27,6 +31,55 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
+
+  testWidgets(
+    'completed compression replaces its task and survives window reloads',
+    (tester) async {
+      final key = GlobalKey<_PrependingMessageListHarnessState>();
+      await tester.pumpWidget(_PrependingMessageListHarness(key: key));
+      await tester.pumpAndSettle();
+      final state = key.currentState!;
+      final messages = state.messages.take(2).toList();
+      state.replaceMessages(messages);
+      final task = ContextCompressionTask(
+        id: 'job',
+        conversationId: 'conversation-1',
+        options: const CompressContextOptions(
+          mode: CompressContextLimitMode.keepRecent,
+          keepUserMessages: 1,
+        ),
+        phase: CompressionPhase.summarizing,
+      )..anchorGroupId = messages.first.id;
+      state.updateContext(task, []);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('context-task-job')), findsOneWidget);
+      final operation = ContextOperation(
+        id: 'job',
+        kind: ContextOperationKind.compress,
+        anchorGroupId: messages.first.id,
+        appliedAfterGroupId: messages.last.id,
+        sourceGroups: [messages.first.id],
+        dependencies: const [],
+        createdAt: DateTime(2026),
+        summary: 'summary',
+      );
+      task.phase = CompressionPhase.completed;
+      state.updateContext(task, [operation]);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('context-task-job')), findsNothing);
+      final node = find.byKey(const ValueKey('context-node-job'));
+      expect(node, findsOneWidget);
+      await tester.tap(node);
+      expect(state.openedOperations, 1);
+      state.replaceMessages([messages.last]);
+      await tester.pumpAndSettle();
+      expect(node, findsNothing);
+      state.replaceMessages(messages);
+      await tester.pumpAndSettle();
+      expect(node, findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'conversation footer follows the final message and scrolls away with history',
@@ -476,7 +529,13 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('updated after nested reasoning scroll'), findsOneWidget);
+    expect(
+      renderedParagraphsWith(
+        'updated after nested reasoning scroll',
+        exact: true,
+      ),
+      hasLength(1),
+    );
 
     scrollController.dispose();
     listController.dispose();
@@ -567,17 +626,32 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('initial stream content'), findsOneWidget);
-    expect(find.text('updated while dragging'), findsNothing);
+    expect(
+      renderedParagraphsWith('initial stream content', exact: true),
+      hasLength(1),
+    );
+    expect(
+      renderedParagraphsWith('updated while dragging', exact: true),
+      isEmpty,
+    );
 
     await tester.pump(const Duration(milliseconds: 220));
-    expect(find.text('initial stream content'), findsOneWidget);
-    expect(find.text('updated while dragging'), findsNothing);
+    expect(
+      renderedParagraphsWith('initial stream content', exact: true),
+      hasLength(1),
+    );
+    expect(
+      renderedParagraphsWith('updated while dragging', exact: true),
+      isEmpty,
+    );
 
     await gesture.up();
     await tester.pump(const Duration(milliseconds: 220));
 
-    expect(find.text('updated while dragging'), findsOneWidget);
+    expect(
+      renderedParagraphsWith('updated while dragging', exact: true),
+      hasLength(1),
+    );
 
     scrollController.dispose();
     listController.dispose();
@@ -678,12 +752,18 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('updated while still near bottom'), findsNothing);
+    expect(
+      renderedParagraphsWith('updated while still near bottom', exact: true),
+      isEmpty,
+    );
 
     await gesture.up();
     await tester.pump(const Duration(milliseconds: 220));
     expect(userIntentCalls, 1);
-    expect(find.text('updated while still near bottom'), findsOneWidget);
+    expect(
+      renderedParagraphsWith('updated while still near bottom', exact: true),
+      hasLength(1),
+    );
 
     scrollController.dispose();
     listController.dispose();
@@ -775,12 +855,21 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('initial wheel stream content'), findsOneWidget);
-    expect(find.text('updated while wheel scrolling'), findsNothing);
+    expect(
+      renderedParagraphsWith('initial wheel stream content', exact: true),
+      hasLength(1),
+    );
+    expect(
+      renderedParagraphsWith('updated while wheel scrolling', exact: true),
+      isEmpty,
+    );
 
     await tester.pump(const Duration(milliseconds: 220));
 
-    expect(find.text('updated while wheel scrolling'), findsOneWidget);
+    expect(
+      renderedParagraphsWith('updated while wheel scrolling', exact: true),
+      hasLength(1),
+    );
 
     scrollController.dispose();
     listController.dispose();
@@ -1281,6 +1370,20 @@ class _PrependingMessageListHarnessState
   final listController = ListController();
   final processingFilesMessageId = ValueNotifier<String?>(null);
   final removingSlotIds = <String>{};
+  ContextCompressionTask? contextTask;
+  List<ContextOperation> contextOperations = [];
+  int openedOperations = 0;
+
+  void updateContext(
+    ContextCompressionTask task,
+    List<ContextOperation> operations,
+  ) {
+    setState(() {
+      contextTask = task;
+      contextOperations = operations;
+    });
+  }
+
   late List<ChatMessage> messages = <ChatMessage>[
     for (var index = 0; index < 30; index++)
       ChatMessage(
@@ -1402,6 +1505,11 @@ class _PrependingMessageListHarnessState
         home: Scaffold(
           appBar: AppBar(),
           body: MessageListView(
+            contextTask: contextTask,
+            contextTaskRevision:
+                '${contextTask?.phase}:${contextTask?.anchorGroupId}',
+            contextOperations: contextOperations,
+            onOpenContextOperation: (_) => openedOperations++,
             scrollController: scrollController,
             listController: listController,
             messages: messages,

@@ -14,15 +14,32 @@ Kelivo is a cross-platform LLM chat client built with Flutter, targeting iOS, An
 
 ## Pre-commit checklist
 
-All three must pass before committing:
+Format changed Dart files with `dart format`, including files under `lib/`,
+`test/`, `integration_test/`, `dependencies/markstream/lib/`, and
+`dependencies/markstream/test/`. For code changes, run static analysis before
+committing:
 
 ```bash
-dart format lib test                        # format changed files
-dart analyze --fatal-infos lib test         # zero warnings, zero infos
-flutter test                                # all unit tests green
+dart analyze --fatal-infos lib test integration_test
+(cd dependencies/markstream && flutter pub get && dart analyze --fatal-infos)
 ```
 
-CI (`pr-check.yml`) enforces the same gates on every PR.
+For ordinary changes, run only the test files or directories covering the
+changed behavior and affected callers, using `flutter test <test paths>`.
+If `markstream` is affected, also run its relevant tests from
+`dependencies/markstream`; root-package checks do not cover this path package.
+
+Run the full test suites locally only when merging a major feature, such as a
+cross-feature integration or broad architectural change:
+
+```bash
+flutter test
+(cd dependencies/markstream && flutter pub get && flutter test)
+```
+
+All required checks must pass. Documentation-only changes do not require Dart
+analysis or Flutter tests. CI (`pr-check.yml`) still runs static analysis and
+the full test suites for both packages on every PR.
 
 ## Benchmarks are not tests
 
@@ -54,7 +71,7 @@ flutter test test/perf/timeline_scroll_bench.dart
 
 ## Local dependencies
 
-Several packages live under `dependencies/` and are referenced by path in `pubspec.yaml` (e.g. `gpt_markdown`, `mcp_client`, `flutter_tts`, `flutter_math_fork`, `downsize`). The analyzer excludes `dependencies/flutter_math_fork/**` and `dependencies/flutter_tts/**`.
+Several packages live under `dependencies/` and are referenced by path in `pubspec.yaml` (e.g. `markstream`, `mcp_client`, `flutter_tts`, `flutter_math_fork`, `downsize`). The analyzer excludes `dependencies/flutter_math_fork/**` and `dependencies/flutter_tts/**`.
 
 ## Useful commands
 

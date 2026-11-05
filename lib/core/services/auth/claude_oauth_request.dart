@@ -3,13 +3,68 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hashlib/hashlib.dart' show XXHash64;
 
 import '../../models/provider_oauth.dart';
 import '../../providers/settings_provider.dart';
 
-// OMP 6f2c14b3, providers/claude-code-fingerprint.ts and anthropic.ts.
-const claudeCodeVersion = '2.1.257';
+// OMP 2282226655, providers/claude-code-fingerprint.ts and anthropic.ts.
+const defaultClaudeCodeVersion = '2.1.280';
+String _claudeCodeVersion = defaultClaudeCodeVersion;
+String get claudeCodeVersion => _claudeCodeVersion;
+
+/// Retain a newer server-required version for this process. Only an explicit
+/// version rejection may change the version; unrelated errors stay untouched.
+/// Returns whether the rejected request can be retried with a newer version,
+/// including when another in-flight request has already adopted it.
+bool adoptRequiredClaudeCodeVersion(
+  String errorBody, {
+  String? requestVersion,
+}) {
+  try {
+    final body = jsonDecode(errorBody);
+    if (body is! Map) return false;
+    final error = body['error'];
+    if (error is! Map) return false;
+    final details = error['details'];
+    if (details is! Map ||
+        details['error_code'] != 'claude_code_version_too_old') {
+      return false;
+    }
+    final message = error['message'];
+    if (message is! String) return false;
+    final required = RegExp(
+      r'\bversion (\d+\.\d+\.\d+) or newer is required\b',
+      caseSensitive: false,
+    ).firstMatch(message)?.group(1);
+    if (required == null ||
+        _compareClaudeVersions(required, requestVersion ?? claudeCodeVersion) <=
+            0) {
+      return false;
+    }
+    if (_compareClaudeVersions(required, claudeCodeVersion) > 0) {
+      _claudeCodeVersion = required;
+    }
+    return true;
+  } on FormatException {
+    return false;
+  }
+}
+
+int _compareClaudeVersions(String a, String b) {
+  final left = a.split('.').map(BigInt.parse).toList();
+  final right = b.split('.').map(BigInt.parse).toList();
+  for (var i = 0; i < 3; i++) {
+    final comparison = left[i].compareTo(right[i]);
+    if (comparison != 0) return comparison;
+  }
+  return 0;
+}
+
+@visibleForTesting
+void resetClaudeCodeVersion() => _claudeCodeVersion = defaultClaudeCodeVersion;
+
 const claudeCodeSdkVersion = '0.112.1';
 const claudeCodeSystemInstruction =
     "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -88,7 +143,13 @@ void setClaudeOAuthHeader(
   String name,
   String value,
 ) {
-  headers.removeWhere((key, _) => key.toLowerCase() == name.toLowerCase());
+  final lowerName = name.toLowerCase();
+  final matchingKeys = headers.keys
+      .where((key) => key.toLowerCase() == lowerName)
+      .toList();
+  for (final key in matchingKeys) {
+    headers.remove(key);
+  }
   headers[name] = value;
 }
 
@@ -222,27 +283,12 @@ String encodeClaudeOAuthRequest(
     if (cache?['ttl'] == '1h') 'extended-cache-ttl-2025-04-11',
   }..remove('context-1m-2025-08-07');
   setClaudeOAuthHeader(headers, 'anthropic-beta', betas.join(','));
-  final maxTokens = body['max_tokens'];
-  body['max_tokens'] = maxTokens is num
-      ? maxTokens.toInt().clamp(1, 64000)
-      : 64000;
-  final thinking = body['thinking'];
-  if (thinking is Map &&
-      thinking['type'] == 'enabled' &&
-      thinking['budget_tokens'] is num &&
-      (thinking['budget_tokens'] as num) > 0) {
-    // OMP reserves 4,000 output tokens beyond an explicit thinking budget.
-    final budget = (thinking['budget_tokens'] as num).toInt();
-    final raised = (budget + 4000).clamp(body['max_tokens'] as int, 64000);
-    body['max_tokens'] = raised;
-    if (budget + 4000 > raised) thinking['budget_tokens'] = raised - 4000;
-  }
   if (cache != null) _cacheClaudeRequest(system, tools, messages, cache);
-  // Match the Claude Code/OMP serialization order before computing cch.
+  // Serialize system before messages, then compute cch from that exact payload.
   const order = [
     'model',
-    'messages',
     'system',
+    'messages',
     'tools',
     'metadata',
     'max_tokens',
@@ -267,6 +313,43 @@ String encodeClaudeOAuthRequest(
   );
   final index = encoded.indexOf('cch=00000', marker);
   return encoded.replaceRange(index + 4, index + 9, cch);
+}
+
+/// Apply the resolved model ceiling before signing the OAuth request. The
+/// builder owns the model key, including aliases and per-model overrides.
+void applyClaudeOAuthOutputLimits(
+  Map<String, dynamic> body, {
+  required int? maxOutput,
+}) {
+  final ceiling = maxOutput != null && maxOutput > 0 ? maxOutput : 64000;
+  final requested = body['max_tokens'];
+  body['max_tokens'] = requested is num
+      ? requested.toInt().clamp(1, ceiling)
+      : ceiling;
+  final thinking = body['thinking'];
+  if (thinking is Map &&
+      thinking['type'] == 'enabled' &&
+      thinking['budget_tokens'] is num &&
+      (thinking['budget_tokens'] as num) > 0) {
+    const minThinkingBudget = 1024;
+    if (ceiling <= minThinkingBudget) {
+      throw ArgumentError.value(
+        ceiling,
+        'maxOutput',
+        'Thinking requires an output limit greater than 1024 tokens',
+      );
+    }
+    // Reserve up to 4,000 output tokens without undercutting the API's
+    // minimum thinking budget on models with a smaller configured ceiling.
+    final reserve = (ceiling - minThinkingBudget).clamp(1, 4000);
+    final budget = (thinking['budget_tokens'] as num).toInt().clamp(
+      minThinkingBudget,
+      ceiling - reserve,
+    );
+    final raised = (budget + reserve).clamp(body['max_tokens'] as int, ceiling);
+    body['max_tokens'] = raised;
+    thinking['budget_tokens'] = budget;
+  }
 }
 
 void _cacheClaudeRequest(

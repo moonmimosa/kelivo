@@ -3,10 +3,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 // ignore: depend_on_referenced_packages
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
 import 'package:Kelivo/core/services/chat/chat_service.dart';
 import 'package:Kelivo/features/search/services/global_session_search_service.dart';
 
@@ -90,6 +92,138 @@ void main() {
     services.add(service);
     return service;
   }
+
+  test(
+    'retiring KelivoIN clears assistant and conversation model overrides',
+    () async {
+      SharedPreferences.setMockInitialValues({'flutter_log_enabled_v1': false});
+      final chatService = createService();
+      await chatService.init();
+      final assistants = await _createLoadedAssistantProvider(
+        session: session,
+        chatService: chatService,
+        assistants: const [
+          {
+            'id': 'assistant-delete',
+            'name': 'Retired model',
+            'chatModelProvider': 'KelivoIN',
+            'chatModelId': 'mistral',
+          },
+          {
+            'id': 'assistant-keep',
+            'name': 'Keep model',
+            'chatModelProvider': 'OpenAI',
+            'chatModelId': 'gpt-4o',
+          },
+        ],
+      );
+      final retiredChat = await chatService.createConversation(
+        title: 'Retired',
+      );
+      await chatService.setConversationModel(
+        retiredChat.id,
+        providerKey: 'KelivoIN',
+        modelId: 'qwen-coder',
+      );
+      final keptChat = await chatService.createConversation(title: 'Keep');
+      await chatService.setConversationModel(
+        keptChat.id,
+        providerKey: 'OpenAI',
+        modelId: 'gpt-4o',
+      );
+      final retired = ProviderConfig.defaultsFor('KelivoIN').copyWith(
+        baseUrl: 'https://text.pollinations.ai/openai',
+        apiKey: 'kelivo',
+        models: ['mistral', 'qwen-coder'],
+      );
+      await session.preferences.setString(
+        'provider_configs_v1',
+        jsonEncode({'KelivoIN': retired.toJson()}),
+      );
+      final settings = SettingsProvider(
+        session.preferences,
+        onProviderModelsRetired: assistants.clearModelSelectionsForProvider,
+      );
+      await settings.loaded;
+
+      expect(assistants.assistants[0].chatModelProvider, isNull);
+      expect(assistants.assistants[0].chatModelId, isNull);
+      expect(assistants.assistants[1].chatModelId, 'gpt-4o');
+      expect(chatService.getConversation(retiredChat.id)!.chatModelId, isNull);
+      expect(chatService.getConversation(keptChat.id)!.chatModelId, 'gpt-4o');
+      expect(settings.getProviderConfig('KelivoIN').models, contains('auto'));
+
+      final reloadedSession = await harness.open();
+      final reloadedAssistants = AssistantProvider(
+        preferences: reloadedSession.preferences,
+      );
+      await reloadedAssistants.loaded;
+      expect(reloadedAssistants.assistants[0].chatModelProvider, isNull);
+      expect(reloadedAssistants.assistants[0].chatModelId, isNull);
+      expect(reloadedAssistants.assistants[1].chatModelId, 'gpt-4o');
+      final reloadedChat = createService();
+      await reloadedChat.init();
+      expect(reloadedChat.getConversation(retiredChat.id)!.chatModelId, isNull);
+      expect(reloadedChat.getConversation(keptChat.id)!.chatModelId, 'gpt-4o');
+    },
+  );
+
+  test(
+    'disabling one model clears only its assistant and conversation bindings',
+    () async {
+      final chat = createService();
+      await chat.init();
+      final assistants = await _createLoadedAssistantProvider(
+        session: session,
+        chatService: chat,
+        assistants: const [
+          {
+            'id': 'assistant-delete',
+            'name': 'Disabled model',
+            'chatModelProvider': 'p',
+            'chatModelId': 'hide',
+          },
+          {
+            'id': 'assistant-keep',
+            'name': 'Enabled model',
+            'chatModelProvider': 'p',
+            'chatModelId': 'keep',
+          },
+          {
+            'id': 'assistant-other',
+            'name': 'Other provider',
+            'chatModelProvider': 'other',
+            'chatModelId': 'hide',
+          },
+        ],
+      );
+      final conversations = <String>[];
+      for (final (provider, model) in [
+        ('p', 'hide'),
+        ('p', 'keep'),
+        ('other', 'hide'),
+      ]) {
+        final conversation = await chat.createConversation(title: model);
+        await chat.setConversationModel(
+          conversation.id,
+          providerKey: provider,
+          modelId: model,
+        );
+        conversations.add(conversation.id);
+      }
+      await assistants.clearModelSelectionsForProvider('p', modelId: 'hide');
+      expect(assistants.getById('assistant-delete')!.chatModelId, isNull);
+      expect(assistants.getById('assistant-keep')!.chatModelId, 'keep');
+      expect(assistants.getById('assistant-other')!.chatModelId, 'hide');
+      expect(chat.getConversation(conversations[0])!.chatModelId, isNull);
+      expect(chat.getConversation(conversations[1])!.chatModelId, 'keep');
+      expect(chat.getConversation(conversations[2])!.chatModelId, 'hide');
+      final reloaded = createService();
+      await reloaded.init();
+      expect(reloaded.getConversation(conversations[0])!.chatModelId, isNull);
+      expect(reloaded.getConversation(conversations[1])!.chatModelId, 'keep');
+    },
+  );
 
   group('AssistantProvider cascade delete', () {
     test(

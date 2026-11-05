@@ -5,6 +5,7 @@ import '../../stream/sse_event.dart';
 import '../../stream/stream_chunk.dart';
 import '../../stream/stream_chunk_decoder.dart';
 import '../../stream/stream_chunk_ids.dart';
+import 'openai_request_shaping.dart';
 
 class ResponsesFunctionCall {
   ResponsesFunctionCall({
@@ -65,15 +66,16 @@ class ResponsesStreamDecoder implements StreamChunkDecoder {
   final StreamChunkIds _ids;
   TokenUsage? _round;
 
-  TokenUsage? get usage {
-    if (_round == null) return initialUsage;
-    return (initialUsage ?? const TokenUsage()).merge(_round!);
-  }
+  TokenUsage? get usage => _round?.asSnapshot() ?? initialUsage;
 
   bool completed = false;
   int approxCompletionChars = 0;
 
-  List<Map<String, dynamic>> outputItems = const <Map<String, dynamic>>[];
+  final _outputItems = <int, Map<String, dynamic>>{};
+  List<Map<String, dynamic>> get outputItems => [
+    for (final index in _outputItems.keys.toList()..sort())
+      _outputItems[index]!,
+  ];
   final List<Map<String, dynamic>> citations = <Map<String, dynamic>>[];
   final Map<int, ResponsesFunctionCall> toolCallsByIndex =
       <int, ResponsesFunctionCall>{};
@@ -92,12 +94,34 @@ class ResponsesStreamDecoder implements StreamChunkDecoder {
   final Set<String> _openServerToolIds = <String>{};
   final Set<String> _endedServerToolIds = <String>{};
   final Set<String> _seenCitationUrls = <String>{};
+  final Set<String> _openReasoningIds = <String>{};
+  final Set<String> _endedReasoningIds = <String>{};
   bool _emittedCitationEvents = false;
   bool _closed = false;
 
   bool get emittedImageEvents =>
       _openImageIds.isNotEmpty || _endedImageIds.isNotEmpty;
   bool get emittedCitationEvents => _emittedCitationEvents;
+
+  /// Reuses the native search parser for a complete JSON response.
+  List<StreamChunk> decodeSearchResults(Map response) {
+    final output = response['output'];
+    if (output is! List) return const [];
+    final chunks = <StreamChunk>[];
+    for (final item in output.whereType<Map>()) {
+      if (item['type'] == 'web_search_call') {
+        chunks.addAll(
+          _endServerTool(
+            item.cast<String, dynamic>(),
+            fallbackStatus: ServerToolStatus.completed,
+          ),
+        );
+      }
+    }
+    _collectCitations(output);
+    _emitCollectedCitations(chunks);
+    return chunks;
+  }
 
   bool get hasFunctionCalls =>
       toolCallsByIndex.isNotEmpty || toolCallsByKey.isNotEmpty;
@@ -206,14 +230,18 @@ class ResponsesStreamDecoder implements StreamChunkDecoder {
         type == 'response.reasoning_text.delta') {
       final delta = obj['delta'];
       if (delta is String && delta.isNotEmpty) {
-        chunks.add(ReasoningDelta(id: _reasoningSeriesId(obj), text: delta));
+        final id = _reasoningSeriesId(obj);
+        chunks.addAll(_startReasoning(id));
+        chunks.add(ReasoningDelta(id: id, text: delta));
       }
       return;
     }
     if (type == 'response.output_item.added') {
       final item = obj['item'];
       final idx = (obj['output_index'] ?? 0) as int;
-      if (item is Map && (item['type'] ?? '') == 'function_call') {
+      if (item is Map && item['type'] == 'reasoning') {
+        chunks.addAll(_startReasoning(_reasoningSeriesId(obj)));
+      } else if (item is Map && (item['type'] ?? '') == 'function_call') {
         final callId = (item['call_id'] ?? '').toString();
         final name = (item['name'] ?? '').toString();
         final args = (item['arguments'] ?? '').toString();
@@ -279,7 +307,10 @@ class ResponsesStreamDecoder implements StreamChunkDecoder {
     if (type == 'response.output_item.done') {
       final item = obj['item'];
       final idx = (obj['output_index'] ?? 0) as int;
-      if (item is Map && (item['type'] ?? '') == 'function_call') {
+      if (item is Map) _outputItems[idx] = item.cast<String, dynamic>();
+      if (item is Map && item['type'] == 'reasoning') {
+        chunks.addAll(_endReasoning(_reasoningSeriesId(obj)));
+      } else if (item is Map && (item['type'] ?? '') == 'function_call') {
         final args = (item['arguments'] ?? '').toString();
         final entry = toolCallsByIndex.putIfAbsent(
           idx,
@@ -402,18 +433,20 @@ class ResponsesStreamDecoder implements StreamChunkDecoder {
         if (usage != null) chunks.add(Usage(usage!));
       }
       final output = response['output'];
-      outputItems = const <Map<String, dynamic>>[];
       if (output is List) {
-        outputItems = [
-          for (final it in output)
-            if (it is Map) it.cast<String, dynamic>(),
-        ];
+        for (var index = 0; index < output.length; index++) {
+          final item = output[index];
+          if (item is Map) {
+            // output_item.done owns the completed reasoning state. Some
+            // terminal envelopes omit it or contain only a reduced snapshot.
+            _outputItems.putIfAbsent(index, () => item.cast<String, dynamic>());
+          }
+        }
         try {
           _collectCitations(output);
           _collectCompletedImages(output);
         } catch (_) {}
         _emitCollectedImages(chunks);
-        _emitCollectedCitations(chunks);
         for (final item in outputItems) {
           if (_isResponsesServerTool(item['type']) &&
               !_endedServerToolIds.contains((item['id'] ?? '').toString())) {
@@ -427,6 +460,7 @@ class ResponsesStreamDecoder implements StreamChunkDecoder {
             );
           }
         }
+        _emitCollectedCitations(chunks);
       }
     }
     final status = failed
@@ -446,7 +480,8 @@ class ResponsesStreamDecoder implements StreamChunkDecoder {
       if (content is! List) continue;
       for (final block in content) {
         if (block is! Map) continue;
-        final anns = block['annotations'] as List? ?? const <dynamic>[];
+        final anns = block['annotations'];
+        if (anns is! List) continue;
         for (final an in anns) {
           if (an is! Map) continue;
           if ((an['type'] ?? '') != 'url_citation') continue;
@@ -652,10 +687,26 @@ class ResponsesStreamDecoder implements StreamChunkDecoder {
     ];
   }
 
+  List<StreamChunk> _startReasoning(String id) {
+    if (_endedReasoningIds.contains(id) || !_openReasoningIds.add(id)) {
+      return const [];
+    }
+    return [ReasoningStart(id: id)];
+  }
+
+  List<StreamChunk> _endReasoning(String id) {
+    if (!_openReasoningIds.remove(id)) return const [];
+    _endedReasoningIds.add(id);
+    return [ReasoningEnd(id: id)];
+  }
+
   List<StreamChunk> _closeOpenSeries({
     ServerToolStatus serverStatus = ServerToolStatus.completed,
   }) {
     final chunks = <StreamChunk>[];
+    for (final id in _openReasoningIds.toList()) {
+      chunks.addAll(_endReasoning(id));
+    }
     for (final id in _openToolIds.toList()) {
       chunks.addAll(_endTool(id));
     }
@@ -747,21 +798,7 @@ bool _isImageGenerationType(dynamic type) {
 }
 
 TokenUsage? _mergeUsage(TokenUsage? current, dynamic rawUsage) {
-  if (rawUsage is! Map) return current;
-  final details =
-      rawUsage['prompt_tokens_details'] ?? rawUsage['input_tokens_details'];
-  final cachedTokens = details is Map ? _readInt(details['cached_tokens']) : 0;
-  return (current ?? const TokenUsage()).merge(
-    TokenUsage(
-      promptTokens: _readInt(
-        rawUsage['prompt_tokens'] ?? rawUsage['input_tokens'],
-      ),
-      completionTokens: _readInt(
-        rawUsage['completion_tokens'] ?? rawUsage['output_tokens'],
-      ),
-      cachedTokens: cachedTokens,
-    ),
-  );
+  return mergeOpenAICompatibleUsage(current, rawUsage);
 }
 
 int _readInt(dynamic value) {

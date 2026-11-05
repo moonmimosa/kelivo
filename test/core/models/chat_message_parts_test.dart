@@ -2,8 +2,31 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:Kelivo/core/models/chat_message.dart';
 import 'package:Kelivo/core/models/message_part.dart';
+import 'package:Kelivo/core/database/generation_run.dart';
 
 void main() {
+  test(
+    'generation proof follows the same revision and is absent on a new revision',
+    () {
+      final message = ChatMessage(
+        id: 'one',
+        role: 'assistant',
+        conversationId: 'c1',
+      );
+      expect(message.generationState, isNull);
+      message.hydrateGenerationState(GenerationRunState.cancelled);
+      expect(
+        message.copyWith(content: 'updated').generationState,
+        GenerationRunState.cancelled,
+      );
+      expect(message.copyWith(id: 'two').generationState, isNull);
+      expect(
+        message.copyWith(isStreaming: true).generationState,
+        GenerationRunState.streaming,
+      );
+      expect(ChatMessage.fromJson(message.toJson()).generationState, isNull);
+    },
+  );
   group('ChatMessage.parts as source of truth', () {
     test('derived body is retained and copies derive from their own parts', () {
       final parts = <MessagePart>[
@@ -187,6 +210,78 @@ void main() {
         expect(next.map((part) => part.kind), ['text', 'tool_call', 'text']);
         expect((next[0] as TextPart).text, '我查一下');
         expect((next[2] as TextPart).text, '结果是 X');
+      },
+    );
+
+    test('content edits keep Unicode characters whole across text slots', () {
+      for (final example in [
+        (before: ['A', 'B'], edited: '😀B', after: ['😀', 'B']),
+        (before: ['AB', 'C', 'D'], edited: 'A😀😄Z', after: ['A😀', '', '😄Z']),
+        (before: ['', 'A', 'B'], edited: '😀', after: ['', '😀', '']),
+        (before: ['😀', 'B'], edited: '😀B', after: ['😀', 'B']),
+        (before: ['A', 'B'], edited: '', after: ['', '']),
+      ]) {
+        final parts = <MessagePart>[];
+        for (var i = 0; i < example.before.length; i++) {
+          if (i > 0) {
+            parts.add(ToolCallPart('{"id":"$i","name":"lookup"}'));
+          }
+          parts.add(TextPart(example.before[i]));
+        }
+        final original = ChatMessage(
+          role: 'assistant',
+          conversationId: 'c1',
+          parts: parts,
+        );
+        final edited = original.copyWith(content: example.edited);
+        expect(edited.content, example.edited);
+        expect(edited.parts.map((part) => part.kind), parts.map((p) => p.kind));
+        expect(
+          edited.parts.whereType<TextPart>().map((part) => part.text),
+          example.after,
+        );
+        expect(
+          edited.parts.whereType<ToolCallPart>(),
+          original.parts.whereType<ToolCallPart>(),
+        );
+        expect(
+          original.parts.whereType<TextPart>().map((p) => p.text),
+          example.before,
+        );
+      }
+    });
+
+    test(
+      'Unicode edits preserve tool boundaries across text block layouts',
+      () {
+        const tool = ToolCallPart('{"id":"a","name":"lookup"}');
+        for (final prefix in [
+          const [TextPart('A'), TextPart('B')],
+          const [TextPart('AB')],
+        ]) {
+          final edited = ChatMessage.partsWithRedistributedText([
+            ...prefix,
+            tool,
+            const TextPart('C'),
+          ], '😀BC');
+          final boundary = edited.indexOf(tool);
+          expect(
+            edited
+                .take(boundary)
+                .whereType<TextPart>()
+                .map((p) => p.text)
+                .join(),
+            '😀',
+          );
+          expect(
+            edited
+                .skip(boundary + 1)
+                .whereType<TextPart>()
+                .map((p) => p.text)
+                .join(),
+            'BC',
+          );
+        }
       },
     );
 

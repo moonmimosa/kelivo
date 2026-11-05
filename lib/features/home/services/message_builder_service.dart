@@ -1,3 +1,7 @@
+import '../../../core/services/api/request_image_context.dart';
+import '../../../l10n/app_localizations.dart';
+import '../../intelligent_ui/host/ui_user_context_parts.dart';
+import '../../intelligent_ui/models/ui_context_attachment.dart';
 import '../../../utils/utf16_safe_cut.dart';
 import '../../chat/utils/thinking_tag_parser.dart';
 import 'package:Kelivo/core/providers/external_mounts_provider.dart';
@@ -10,10 +14,9 @@ import '../../../core/database/chat_database_repository.dart';
 import '../../../core/models/assistant.dart';
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/context_operation.dart';
 import '../../../core/models/message_part.dart';
 import '../../../core/models/conversation.dart';
-import '../../../core/models/instruction_injection.dart';
-import '../../../core/models/memory_entry.dart';
 import '../../../core/models/world_book.dart';
 import '../../../core/models/conversation_prompt_settings.dart';
 import '../../../core/services/world_book_activation.dart';
@@ -27,9 +30,9 @@ import '../../../utils/mcp_structured_image.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../../../core/services/chat/prompt_transformer.dart';
 import '../../../core/services/logging/context_log_models.dart';
-import '../../../core/services/logging/context_logger.dart';
 import '../../../core/services/memory/memory_block_builder.dart';
 import '../../../core/services/memory/memory_prompts.dart';
+import '../../../core/services/memory/memory_snapshot.dart';
 import '../../../core/models/skills_binding.dart';
 import '../../../core/providers/workspace_provider.dart';
 import '../../../core/services/search/search_tool_service.dart';
@@ -41,12 +44,44 @@ import '../../../core/providers/world_book_provider.dart';
 import '../../../core/services/api/builtin_tools.dart';
 import '../../../core/services/api/providers/claude/claude_container.dart';
 import '../../../core/services/api/providers/claude/claude_history.dart';
-import '../../../core/services/api/providers/google/gemini_thought_signature.dart';
+import '../../../core/services/api/providers/claude/claude_thinking_recovery.dart';
+import '../../../core/services/api/providers/google_gemini.dart';
 import '../../../core/models/assistant_regex.dart';
 import '../../../core/utils/multimodal_input_utils.dart';
 import '../../../utils/assistant_regex.dart';
 import '../../../utils/markdown_media_sanitizer.dart';
 import 'ocr_service.dart';
+import 'assistant_tool_history.dart';
+import '../../../core/services/api/providers/openai/responses_history.dart';
+
+void _removeGoogleToolSignatures(Map<String, dynamic> message) {
+  void removeFromMetadata(Map<String, dynamic> target) {
+    final metadata = target['metadata'];
+    if (metadata is! Map) return;
+    final google = metadata['google'];
+    if (google is! Map) return;
+    final part = google['part'];
+    if (part is! Map) return;
+    // Copy only the changed maps so replay never alters persisted tool data.
+    target['metadata'] = {
+      ...metadata,
+      'google': {
+        ...google,
+        'part': Map<String, dynamic>.from(part)
+          ..remove('thoughtSignature')
+          ..remove('thought_signature'),
+      },
+    };
+  }
+
+  removeFromMetadata(message);
+  final calls = message['tool_calls'];
+  if (calls is List) {
+    for (final call in calls.cast<Map<String, dynamic>>()) {
+      removeFromMetadata(call);
+    }
+  }
+}
 
 /// Result of §7.6 memory-prefix resolution.
 ///
@@ -61,9 +96,6 @@ typedef MemoryPrefixResolution = ({
   String? snapshotKind,
 });
 
-/// The blocks memory injection would emit for one assistant at one moment.
-typedef MemorySnapshotState = ({String prefix, String hash, bool isEmpty});
-
 const MemoryPrefixResolution _noMemoryPrefix = (
   prefix: '',
   hash: null,
@@ -77,6 +109,12 @@ const MemoryPrefixResolution _noMemoryPrefix = (
 /// temporary ones are never written there, so without a pass-scoped record each
 /// message would look like the first and re-inject the same snapshot.
 class MemoryInjectionPass {
+  MemoryInjectionPass({this.retainedSnapshotCarriers});
+
+  /// Frozen snapshot carriers actually retained in this request. A null value
+  /// lets standalone prompt resolution consult the stored history instead.
+  final Set<String>? retainedSnapshotCarriers;
+
   /// Revision ids that received a memory block during this request.
   final Set<String> snapshotCarriers = <String>{};
 
@@ -141,6 +179,12 @@ class MessageBuilderService {
   /// Build context (used for accessing providers via context.read)
   final BuildContext contextProvider;
 
+  String _quotedContent(ChatMessage message) => message.quotes.isEmpty
+      ? message.content
+      : message.quotedContent(
+          AppLocalizations.of(contextProvider)!.selectionQuoteMarker,
+        );
+
   /// OCR handler for processing images (optional, injected from home_page)
   final Future<String?> Function(
     List<String> imagePaths, {
@@ -166,6 +210,15 @@ class MessageBuilderService {
   final String? Function(ChatMessage message, String kind)?
   providerArtifactLookup;
 
+  String? _providerArtifact(ChatMessage message, String kind) {
+    // Native replay data follows the frozen message, including an explicitly
+    // empty snapshot. A later LRU eviction or stream update must not change it.
+    if (message.hasProviderArtifactSnapshot) {
+      return message.providerArtifactSnapshot[kind];
+    }
+    return providerArtifactLookup?.call(message, kind);
+  }
+
   /// Cache for document text extraction to avoid re-reading files on every message
   /// Keyed by path, validated with (modified + size) to avoid stale reuse.
   final Map<String, _DocTextCacheEntry> _docTextCache =
@@ -186,18 +239,22 @@ class MessageBuilderService {
         ? <ChatMessage>[]
         : await chatService.loadSelectedContextMessages(
             conversation.id,
-            truncateIndex: conversation.truncateIndex,
             limit: limit,
           );
     if (history.any((m) => m.isStreaming)) throw StateError('in_flight');
     final messages = <Map<String, dynamic>>[];
-    var remaining = 32000;
-    for (final message in history.reversed) {
+    final summaries = history.where(ContextOperation.isSummary).toList();
+    var remaining =
+        (32000 - summaries.fold<int>(0, (sum, m) => sum + m.content.length))
+            .clamp(0, 32000);
+    for (final message in history.reversed.where(
+      (m) => !ContextOperation.isSummary(m),
+    )) {
       if (message.role != 'user' && message.role != 'assistant') continue;
       if (remaining <= 0) break;
       final raw = message.role == 'assistant'
           ? ThinkingTagParser.parseWithRanges(message.content).visibleContent
-          : message.content;
+          : _quotedContent(message);
       if (raw.trim().isEmpty) continue;
       final text = truncateHeadTailUtf16Safe(
         raw,
@@ -207,6 +264,10 @@ class MessageBuilderService {
       remaining -= text.length;
       messages.insert(0, {'role': message.role, 'content': text});
     }
+    messages.insertAll(0, [
+      for (final summary in summaries)
+        {'role': 'user', 'content': summary.content},
+    ]);
     if (conversation == null) {
       for (final message in assistant.presetMessages) {
         messages.add({'role': message.role, 'content': message.content});
@@ -228,6 +289,9 @@ class MessageBuilderService {
     );
     if (conversation?.summary?.trim().isNotEmpty == true &&
         conversation!.truncateIndex < 0 &&
+        chatService
+            .contextOperationsFor(conversation.id)
+            .every((op) => op.revoked) &&
         conversation.lastSummarizedMessageCount ==
             await chatService.resolveMessageCount(conversation.id)) {
       _appendToSystemMessage(
@@ -261,6 +325,7 @@ class MessageBuilderService {
       sourceMessages: history,
       persistActivation: false,
     );
+    stripInternalRevisionIds(messages);
     return messages;
   }
 
@@ -309,34 +374,120 @@ class MessageBuilderService {
 
   /// Build API messages list from current conversation state.
   ///
-  /// Applies truncation and version collapsing. Attachments come from parts.
+  /// Receives projected history and collapses versions. Attachments come from parts.
+  /// [preserveToolTurns] replays each persisted tool round as its own turn.
+  /// [responsesScope] selects native Responses replay for matching artifacts.
+  /// [claudeSource] keeps ordinary Claude blocks on their original model.
+  /// [googleProviderId] limits Gemini signatures to their original provider.
   List<Map<String, dynamic>> buildApiMessages({
     required List<ChatMessage> messages,
     required Map<String, int> versionSelections,
     required Conversation? currentConversation,
     bool includeToolMessages = false,
+    bool preserveToolTurns = false,
+    ResponsesReplayScope? responsesScope,
+    ({String providerId, String modelId})? claudeSource,
+    String? googleProviderId,
   }) {
-    final tIndex = currentConversation?.truncateIndex ?? -1;
-    final List<ChatMessage> sourceAll =
-        (tIndex >= 0 && tIndex <= messages.length)
-        ? messages.sublist(tIndex)
-        : List.of(messages);
-    final List<ChatMessage> source = collapseVersions(
-      sourceAll,
-      versionSelections,
-    );
+    final source = collapseVersions(messages, versionSelections);
 
     final out = <Map<String, dynamic>>[];
 
+    void identify(Map<String, dynamic> message, String id) {
+      message[imageContextOwnerKey] = id;
+      if (message['role'] == 'tool') {
+        message['metadata'] = <String, dynamic>{
+          ...?(message['metadata'] as Map?)?.cast<String, dynamic>(),
+          imageContextOwnerKey: id,
+          '_kelivo_image_call': message['tool_call_id'],
+        };
+      }
+    }
+
+    final thinkingRecovery = ClaudeThinkingRecovery();
     for (final m in source) {
+      final messageStart = out.length;
+      final omitGoogleSignatures =
+          m.role == 'assistant' &&
+          googleProviderId != null &&
+          m.providerId != googleProviderId;
+      if (includeToolMessages && !preserveToolTurns && m.role == 'assistant') {
+        thinkingRecovery.readArtifact(
+          _providerArtifact(m, claudeThinkingRecoveryArtifactKind),
+        );
+      }
+      if (m.role == 'assistant' &&
+          includeToolMessages &&
+          responsesScope != null) {
+        final history = buildResponsesHistory(
+          payload: _providerArtifact(m, responsesTurnArtifactKind),
+          scope: responsesScope,
+          toolEvents: chatService.getToolEventsForMessage(m),
+          content: m.content,
+        );
+        if (history != null) {
+          for (final message in history) {
+            identify(message, m.id);
+            ContextSegmentTags.replaceWithSingle(
+              message,
+              source: message['role'] == 'tool'
+                  ? ContextSource.toolResult
+                  : message['tool_calls'] is List
+                  ? ContextSource.toolCall
+                  : ContextSource.chatHistory,
+              length: (message['content'] ?? '').toString().length,
+            );
+          }
+          out.addAll(history);
+          continue;
+        }
+      }
+      var content = _quotedContent(m);
+      var hasClaudeToolTurn = false;
+      // Signed native blocks belong to the provider/model that produced them.
+      // Tool turns carry their artifact on the tool-call message below.
+      final plainClaudeTurn =
+          includeToolMessages &&
+              !preserveToolTurns &&
+              m.role == 'assistant' &&
+              claudeSource != null &&
+              m.providerId == claudeSource.providerId &&
+              m.modelId == claudeSource.modelId &&
+              chatService.getToolEventsForMessage(m).isEmpty
+          ? _providerArtifact(m, claudeTurnArtifactKind)
+          : null;
       String? assistantReasoningContent;
       dynamic reasoningDetails;
       if (m.role == 'assistant') {
         assistantReasoningContent = _reasoningContentForToolContinuation(m);
         reasoningDetails = _reasoningDetailsForApi(m);
       }
-      if (includeToolMessages && m.role == 'assistant') {
-        final events = chatService.getToolEvents(m.id);
+      if (includeToolMessages && m.role == 'assistant' && preserveToolTurns) {
+        final history = buildAssistantToolHistory(m.parts);
+        for (final message in history.messages) {
+          identify(message, m.id);
+          ContextSegmentTags.replaceWithSingle(
+            message,
+            source: message['role'] == 'tool'
+                ? ContextSource.toolResult
+                : ContextSource.toolCall,
+            length: (message['content'] ?? '').toString().length,
+          );
+        }
+        out.addAll(history.messages);
+        content = history.content;
+        // Persisted parts own the position and exact bytes of each thinking
+        // block. The scalar spans all rounds and must not be repeated here.
+        if (m.parts.any(
+          (part) => part is ReasoningPart || part is ToolCallPart,
+        )) {
+          assistantReasoningContent = history.reasoning;
+        }
+        if (content.isEmpty && history.reasoning == null) {
+          reasoningDetails = null;
+        }
+      } else if (includeToolMessages && m.role == 'assistant') {
+        final events = chatService.getToolEventsForMessage(m);
         if (events.isNotEmpty) {
           // Tool-call history is only valid once every call has a result.
           final hasPendingToolEvent = events.any((e) => e['content'] == null);
@@ -367,8 +518,12 @@ class MessageBuilderService {
                 'id': id,
                 'type': 'function',
                 'function': {'name': name, 'arguments': argumentsJson},
-                if (e['metadata'] is Map)
-                  'metadata': (e['metadata'] as Map).cast<String, dynamic>(),
+                if (e['metadata'] is Map || e['server'] == true)
+                  'metadata': {
+                    if (e['metadata'] is Map)
+                      ...(e['metadata'] as Map).cast<String, dynamic>(),
+                    if (e['server'] == true) 'server': true,
+                  },
               });
 
               final c = e['content'];
@@ -388,16 +543,14 @@ class MessageBuilderService {
                 'content': '\n\n',
                 'tool_calls': calls,
               };
-              final turn = providerArtifactLookup?.call(
-                m,
-                claudeTurnArtifactKind,
-              );
+              final turn = _providerArtifact(m, claudeTurnArtifactKind);
               if (turn != null && turn.isNotEmpty) {
                 assistantToolMessage[multimodalInternalClaudeTurnKey] = turn;
+                hasClaudeToolTurn = claudeSource != null;
               }
               // Also here: a turn that ran code and then said nothing has no
               // final message below to carry the container.
-              final container = providerArtifactLookup?.call(
+              final container = _providerArtifact(
                 m,
                 claudeContainerArtifactKind,
               );
@@ -414,36 +567,47 @@ class MessageBuilderService {
               // assistant message as well would replay the same reasoning
               // twice, which OpenRouter/Anthropic reject. Only the final
               // assistant message below carries them.
-              if (ContextLogger.enabled) {
+              ContextSegmentTags.replaceWithSingle(
+                assistantToolMessage,
+                source: ContextSource.toolCall,
+                length: (assistantToolMessage['content'] ?? '')
+                    .toString()
+                    .length,
+              );
+              for (final toolMessage in toolMessages) {
                 ContextSegmentTags.replaceWithSingle(
-                  assistantToolMessage,
-                  source: ContextSource.toolCall,
-                  length: (assistantToolMessage['content'] ?? '')
-                      .toString()
-                      .length,
+                  toolMessage,
+                  source: ContextSource.toolResult,
+                  length: (toolMessage['content'] ?? '').toString().length,
                 );
-                for (final toolMessage in toolMessages) {
-                  ContextSegmentTags.replaceWithSingle(
-                    toolMessage,
-                    source: ContextSource.toolResult,
-                    length: (toolMessage['content'] ?? '').toString().length,
-                  );
-                }
               }
               out.add(assistantToolMessage);
+              for (final toolMessage in toolMessages) {
+                identify(toolMessage, m.id);
+              }
               out.addAll(toolMessages);
             }
           }
         }
       }
 
-      final content = m.content;
+      if (omitGoogleSignatures) {
+        content = extractGeminiThoughtMeta(content).cleanedText;
+        for (final message in out.skip(messageStart)) {
+          _removeGoogleToolSignatures(message);
+        }
+      }
+
       final mediaRefs = mediaRefsFromParts(m);
       // Pure-attachment turns have empty text content but still must be sent.
       // Document FileParts are omitted from mediaRefs (they travel via
       // document extraction), so also keep messages that still have a usable
       // ImagePart/FilePart for processUserMessagesForApi to inject text.
       if (content.isEmpty &&
+          (assistantReasoningContent?.isEmpty ?? true) &&
+          reasoningDetails == null &&
+          (plainClaudeTurn?.isEmpty ?? true) &&
+          !hasClaudeToolTurn &&
           mediaRefs.isEmpty &&
           !_hasUsableAttachmentPart(m)) {
         continue;
@@ -451,20 +615,30 @@ class MessageBuilderService {
       final role = m.role == 'assistant' ? 'assistant' : 'user';
       final message = <String, dynamic>{'role': role, 'content': content};
       if (role == 'user') {
-        message[internalRevisionIdKey] = m.id;
+        if (ContextOperation.isSummary(m)) {
+          message['_contextSummary'] = true;
+        } else {
+          message[internalRevisionIdKey] = m.id;
+        }
+        final frozenUi = UiUserContextParts.read(m.parts).context;
+        if (frozenUi != null) {
+          message[multimodalInternalLiteralTextKey] = frozenUi.exactText;
+        }
       } else {
-        final container = providerArtifactLookup?.call(
-          m,
-          claudeContainerArtifactKind,
-        );
+        if (plainClaudeTurn?.isNotEmpty == true) {
+          message[multimodalInternalClaudeTurnKey] = plainClaudeTurn;
+        }
+        final container = _providerArtifact(m, claudeContainerArtifactKind);
         if (container != null && container.isNotEmpty) {
           message[multimodalInternalClaudeContainerKey] = container;
         }
-        final signature = providerArtifactLookup?.call(
+        final signature = _providerArtifact(
           m,
           geminiThoughtSignatureArtifactKind,
         );
-        if (signature != null && signature.isNotEmpty) {
+        if (!omitGoogleSignatures &&
+            signature != null &&
+            signature.isNotEmpty) {
           message[multimodalInternalGeminiThoughtSignatureKey] = signature;
         }
       }
@@ -483,16 +657,21 @@ class MessageBuilderService {
       if (reasoningDetails != null) {
         message['reasoning_details'] = reasoningDetails;
       }
-      if (ContextLogger.enabled) {
-        ContextSegmentTags.replaceWithSingle(
-          message,
-          source: ContextSource.chatHistory,
-          length: content.length,
-        );
-      }
+      ContextSegmentTags.replaceWithSingle(
+        message,
+        source: ContextSource.chatHistory,
+        length: content.length,
+      );
+      identify(message, m.id);
       out.add(message);
     }
 
+    // Carry the cumulative state on the last message so subsequent context
+    // trimming and textless assistant replies cannot lose the recovery.
+    final recoveryArtifact = thinkingRecovery.artifact;
+    if (out.isNotEmpty && recoveryArtifact != null) {
+      out.last[multimodalInternalClaudeThinkingRecoveryKey] = recoveryArtifact;
+    }
     return out;
   }
 
@@ -576,6 +755,7 @@ class MessageBuilderService {
   void stripInternalRevisionIds(List<Map<String, dynamic>> apiMessages) {
     for (final message in apiMessages) {
       message.remove(internalRevisionIdKey);
+      message.remove('_contextSummary');
       message.remove(kelivoContextSegmentsKey);
     }
   }
@@ -625,7 +805,7 @@ class MessageBuilderService {
 
   String _reasoningContentForToolContinuation(ChatMessage message) {
     String pick(ChatMessage candidate) {
-      final direct = (candidate.reasoningText ?? '').trim();
+      final direct = candidate.reasoningText ?? '';
       if (direct.isNotEmpty) return direct;
 
       final raw = (candidate.reasoningSegmentsJson ?? '').trim();
@@ -641,10 +821,10 @@ class MessageBuilderService {
         final parts = <String>[];
         for (final item in segmentsRaw) {
           if (item is! Map) continue;
-          final text = (item['text'] ?? '').toString().trim();
+          final text = (item['text'] ?? '').toString();
           if (text.isNotEmpty) parts.add(text);
         }
-        return parts.join('\n').trim();
+        return parts.join();
       } catch (_) {
         return '';
       }
@@ -690,10 +870,13 @@ class MessageBuilderService {
     ChatMessage message, {
     bool includeMediaFilePathsAsImages = true,
   }) {
+    final contextParts = message.role == 'user'
+        ? UiUserContextParts.read(message.parts)
+        : null;
     final images = <String>[];
     final docs = <DocumentAttachment>[];
     final textParts = <String>[];
-    for (final part in message.parts) {
+    for (final part in contextParts?.body ?? message.parts) {
       if (part is TextPart) {
         textParts.add(part.text);
       } else if (part is ImagePart) {
@@ -722,8 +905,12 @@ class MessageBuilderService {
     }
     return ChatInputData(
       text: textParts.join().trim(),
+      quotes: message.quotes,
       imagePaths: images,
       documents: docs,
+      uiContext: contextParts?.context == null
+          ? null
+          : UiContextAttachment.history(contextParts!.context!),
     );
   }
 
@@ -741,7 +928,12 @@ class MessageBuilderService {
       return ChatInputData(text: text.trim(), imagePaths: mediaPaths);
     }
     final images = <String>[];
-    final docs = <DocumentAttachment>[];
+    final docs = [
+      for (final ref in parseInternalDocumentRefs(
+        message[multimodalInternalDocumentPathsKey],
+      ))
+        DocumentAttachment(path: ref.uri, fileName: ref.name, mime: ref.mime),
+    ];
     for (final ref in mediaRefs) {
       final path = ref.uri;
       final mime = (ref.mime != null && ref.mime!.trim().isNotEmpty)
@@ -785,7 +977,9 @@ class MessageBuilderService {
     Conversation? conversation,
     List<ChatMessage>? sourceMessages,
     bool sandboxDataFiles = false,
+    bool nativePdfInput = false,
     Map<String, AttachmentInfo> workspaceAttachments = const {},
+    bool useWorkspaceForDocuments = true,
   }) {
     final bool ocrActive =
         settings.ocrEnabled &&
@@ -813,12 +1007,16 @@ class MessageBuilderService {
       final mediaPaths = <String>{};
       for (final document in parsed.documents) {
         final mime = _effectiveAttachmentMime(document);
+        if (nativePdfInput && isPdfMime(mime)) continue;
         if (isVideoMime(mime) || isAudioMime(mime)) {
           final path = document.path.trim();
           if (path.isNotEmpty) mediaPaths.add(path);
           continue;
         }
-        if (workspaceAttachments.containsKey(document.path)) continue;
+        if (useWorkspaceForDocuments &&
+            workspaceAttachments.containsKey(document.path)) {
+          continue;
+        }
         if (sandboxDataFiles &&
             isSandboxDataFile(fileName: document.fileName, mime: mime)) {
           continue;
@@ -845,7 +1043,14 @@ class MessageBuilderService {
   /// carrying one is not frozen: the frozen prompt is provider-neutral, and a
   /// later regeneration on a provider without a sandbox needs the text back.
   ///
+  /// Workspace attachment paths are added to their owning messages after
+  /// prompt freezing and memory refresh, using the current workspace mapping.
+  /// [useWorkspaceForDocuments] requires read_file or shell; paths remain
+  /// visible even when the available tools cannot read document contents.
+  ///
   /// Returns the image paths from the last user message (for API call).
+  /// [previewOnly] reads frozen prompts and resolves memory without writing
+  /// prompts or triggering document extraction / OCR for unfrozen attachments.
   Future<List<String>> processUserMessagesForApi(
     List<Map<String, dynamic>> apiMessages,
     SettingsProvider settings,
@@ -853,8 +1058,19 @@ class MessageBuilderService {
     Conversation? conversation,
     List<ChatMessage>? sourceMessages,
     bool sandboxDataFiles = false,
+    bool nativePdfInput = false,
+    bool previewOnly = false,
     Map<String, AttachmentInfo> workspaceAttachments = const {},
+    bool useWorkspaceForDocuments = true,
   }) async {
+    late final quoteMarker = lookupAppLocalizations(
+      basicLocaleListResolution(
+        settings.isFollowingSystemLocale
+            ? WidgetsBinding.instance.platformDispatcher.locales
+            : [settings.appLocale],
+        AppLocalizations.supportedLocales,
+      ),
+    ).selectionQuoteMarker;
     final bool ocrActive =
         settings.ocrEnabled &&
         settings.ocrModelProvider != null &&
@@ -886,13 +1102,42 @@ class MessageBuilderService {
         if (isPersistedUserMessage(message))
           (message[internalRevisionIdKey] ?? '').toString().trim(),
     ];
-    final frozenPrompts = _repo == null
+    final storedPrompts = _repo == null
         ? null
         : await _repo!.getMessagePrompts(persistedRevisionIds);
 
+    // Decide which frozen prompts survive before any memory injection. A PDF
+    // sent natively drops its extracted text and the snapshot frozen with it;
+    // that database row must no longer count as memory in this request.
+    final nativePdfRevisionIds = <String>{};
+    if (nativePdfInput) {
+      for (final message in apiMessages) {
+        if (!isPersistedUserMessage(message)) continue;
+        final revisionId = message[internalRevisionIdKey].toString().trim();
+        final chatMessage = _resolveChatMessage(
+          revisionId: revisionId,
+          conversation: conversation,
+          sourceMessages: sourceMessages,
+        );
+        final input = chatMessage != null
+            ? parseInputFromMessage(chatMessage)
+            : parseInputFromApiMap(message);
+        if (input.documents.any(
+          (d) => isPdfMime(_effectiveAttachmentMime(d)),
+        )) {
+          nativePdfRevisionIds.add(revisionId);
+        }
+      }
+    }
+    final frozenPrompts = {
+      if (storedPrompts != null)
+        for (final entry in storedPrompts.entries)
+          if (!nativePdfRevisionIds.contains(entry.key)) entry.key: entry.value,
+    };
+
     // Prefetch OCR only for messages that still need generation (no freeze yet).
     OcrPrepareSession? ocrSession;
-    if (ocrActive && ocrPrefetch != null) {
+    if (!previewOnly && ocrActive && ocrPrefetch != null) {
       final revisionIds = <String>[];
       final allImagePaths = <String>{};
       for (final message in apiMessages) {
@@ -900,7 +1145,7 @@ class MessageBuilderService {
         final revisionId = (message[internalRevisionIdKey] ?? '')
             .toString()
             .trim();
-        if (frozenPrompts?.containsKey(revisionId) ?? false) continue;
+        if (frozenPrompts.containsKey(revisionId)) continue;
         final revisionForParse = revisionId;
         final chatForParse = _resolveChatMessage(
           revisionId: revisionForParse,
@@ -944,6 +1189,7 @@ class MessageBuilderService {
     }
 
     Future<String?> readDocument(DocumentAttachment d) async {
+      if (previewOnly) return null;
       // Resolve once so cache key and extractor share the same absolute path.
       // null means rejected (UNC/SMB) — never fall back to the raw path.
       final resolvedPath = SandboxPathResolver.resolveForIo(d.path);
@@ -991,13 +1237,19 @@ class MessageBuilderService {
       }
     }
 
-    final injectionPass = MemoryInjectionPass();
+    final injectionPass = MemoryInjectionPass(
+      retainedSnapshotCarriers: {
+        for (final entry in frozenPrompts.entries)
+          if (entry.value.carriesMemorySnapshot) entry.key,
+      },
+    );
 
     // Revision ids whose payload really came from memory injection. Format
     // alone must never decide this: a user who pastes a snapshot copied out of
     // the context log would otherwise have that text treated as an internal
     // block and stripped off their message.
     final snapshotRevisionIds = <String>{};
+    final workspaceAttachmentPrompts = <int, String>{};
 
     for (int i = 0; i < apiMessages.length; i++) {
       if (!isPersistedUserMessage(apiMessages[i])) continue;
@@ -1012,15 +1264,54 @@ class MessageBuilderService {
       final parsedUser = chatMessageForParts != null
           ? parseInputFromMessage(chatMessageForParts)
           : parseInputFromApiMap(apiMessages[i]);
-      final hasWorkspaceDocuments = parsedUser.documents.any(
-        (d) => workspaceAttachments.containsKey(d.path),
-      );
+      final hasNativePdf = nativePdfRevisionIds.contains(revisionId);
+      final workspaceFiles = StringBuffer();
+      final attachmentPaths = <String>{
+        for (final document in parsedUser.documents) document.path,
+        ...parsedUser.imagePaths,
+      };
+      for (final path in attachmentPaths) {
+        final local = workspaceAttachments[path];
+        if (local == null) continue;
+        workspaceFiles
+          ..writeln('Attached file: ${local.name}')
+          ..writeln('Path: ${local.modelPath} (${local.size} bytes)');
+        if (useWorkspaceForDocuments) {
+          workspaceFiles.writeln(
+            'Use workspace file tools to inspect it as needed.',
+          );
+        }
+      }
+      if (workspaceFiles.isNotEmpty) {
+        workspaceAttachmentPrompts[i] = workspaceFiles.toString().trimRight();
+      }
+      final hasWorkspaceDocuments =
+          useWorkspaceForDocuments &&
+          parsedUser.documents.any(
+            (d) =>
+                workspaceAttachments.containsKey(d.path) &&
+                !(nativePdfInput && isPdfMime(_effectiveAttachmentMime(d))),
+          );
       // A local workspace already owns these documents. Do not additionally
       // upload them to a provider's code-execution sandbox.
       if (hasWorkspaceDocuments) {
-        final remaining = parseInternalDocumentRefs(
-          apiMessages[i][multimodalInternalDocumentPathsKey],
-        ).where((ref) => !workspaceAttachments.containsKey(ref.uri)).toList();
+        final remaining =
+            parseInternalDocumentRefs(
+                  apiMessages[i][multimodalInternalDocumentPathsKey],
+                )
+                .where(
+                  (ref) =>
+                      !workspaceAttachments.containsKey(ref.uri) ||
+                      (nativePdfInput &&
+                          isPdfMime(
+                            resolveMediaAttachmentMime(
+                              explicitMime: ref.mime,
+                              fileName: ref.name,
+                              path: ref.uri,
+                            ),
+                          )),
+                )
+                .toList();
         if (remaining.isEmpty) {
           apiMessages[i].remove(multimodalInternalDocumentPathsKey);
         } else {
@@ -1117,8 +1408,8 @@ class MessageBuilderService {
         lastUserImagePaths = List<String>.of(parsedUser.imagePaths);
       }
 
-      // Prefer frozen promptContent — never recompute (§8.3).
-      final existing = frozenPrompts?[revisionId];
+      // Reuse only the frozen prompts retained for this request.
+      final existing = frozenPrompts[revisionId];
       if (existing != null) {
         final sendPayload = _legacyAwareFrozenPayload(
           payload: existing.payload,
@@ -1129,19 +1420,19 @@ class MessageBuilderService {
         final carriesSnapshot =
             existing.carriesMemorySnapshot && sendPayload == existing.payload;
         if (carriesSnapshot) snapshotRevisionIds.add(revisionId);
-        if (ContextLogger.enabled) {
-          _tagFrozenUserPrompt(
-            apiMessages[i],
-            payload: sendPayload,
-            carriesMemorySnapshot: carriesSnapshot,
-          );
-        }
+        _tagFrozenUserPrompt(
+          apiMessages[i],
+          payload: sendPayload,
+          carriesMemorySnapshot: carriesSnapshot,
+        );
         continue;
       }
 
       // Apply replace-only regexes at send-time on user text.
       final replacedUserText = applyAssistantRegexes(
-        parsedUser.text,
+        parsedUser.quotes.isEmpty
+            ? parsedUser.text
+            : parsedUser.quotedText(quoteMarker),
         assistant: assistant,
         scope: AssistantRegexScope.user,
         target: AssistantRegexTransformTarget.send,
@@ -1149,22 +1440,22 @@ class MessageBuilderService {
 
       // Attachments travel via internalMediaPathsKey / lastUserImagePaths —
       // never re-embed legacy attachment markers into content.
-      final cleanedUser = replacedUserText.trim();
+      final ordinaryUser = replacedUserText.trim();
+      final frozenUi = parsedUser.uiContext?.text.exactText;
+      final cleanedUser = frozenUi == null
+          ? ordinaryUser
+          : '$frozenUi\n\n$ordinaryUser';
 
       final filePrompts = StringBuffer();
       var leftToSandbox = false;
       for (final d in parsedUser.documents) {
-        final local = workspaceAttachments[d.path];
-        if (local != null) {
+        final effectiveMime = _effectiveAttachmentMime(d);
+        if (nativePdfInput && isPdfMime(effectiveMime)) continue;
+        if (useWorkspaceForDocuments &&
+            workspaceAttachments.containsKey(d.path)) {
           leftToSandbox = true;
-          filePrompts.writeln('Attached file: ${d.fileName}');
-          filePrompts.writeln('Path: ${local.modelPath} (${local.size} bytes)');
-          filePrompts.writeln(
-            'Use workspace file tools to inspect it as needed.',
-          );
           continue;
         }
-        final effectiveMime = _effectiveAttachmentMime(d);
         if (isVideoMime(effectiveMime) || isAudioMime(effectiveMime)) {
           continue;
         }
@@ -1185,9 +1476,9 @@ class MessageBuilderService {
       }
 
       String merged = (filePrompts.toString() + cleanedUser).trim();
-      var canFreezePrompt = !leftToSandbox;
+      var canFreezePrompt = !previewOnly && !leftToSandbox && !hasNativePdf;
 
-      if (ocrActive && ocrHandler != null) {
+      if (!previewOnly && ocrActive && ocrHandler != null) {
         final ocrTargets = parsedUser.imagePaths
             .map((p) => p.trim())
             .where(
@@ -1269,6 +1560,17 @@ class MessageBuilderService {
       snapshotRevisionIds: snapshotRevisionIds
         ..addAll(injectionPass.snapshotCarriers),
     );
+
+    // Keep execution paths out of frozen prompts so rebinding a workspace can
+    // resolve them again. Only the owning message receives each descriptor;
+    // later uploads do not change the system prompt or earlier message text.
+    for (final entry in workspaceAttachmentPrompts.entries) {
+      final message = apiMessages[entry.key];
+      final body = message['content'] as String;
+      message['content'] = body.isEmpty
+          ? entry.value
+          : '$body\n\n${entry.value}';
+    }
 
     return lastUserImagePaths ?? <String>[];
   }
@@ -1364,23 +1666,19 @@ class MessageBuilderService {
         if (wanted == null || wanted == split.prefix) continue;
         final refreshed = '$wanted${split.rest}';
         message['content'] = refreshed;
-        if (ContextLogger.enabled) {
-          _tagFrozenUserPrompt(
-            message,
-            payload: refreshed,
-            carriesMemorySnapshot: wanted.isNotEmpty,
-          );
-        }
+        _tagFrozenUserPrompt(
+          message,
+          payload: refreshed,
+          carriesMemorySnapshot: wanted.isNotEmpty,
+        );
         continue;
       }
       message['content'] = split.rest;
-      if (ContextLogger.enabled) {
-        ContextSegmentTags.replaceWithSingle(
-          message,
-          source: ContextSource.chatHistory,
-          length: split.rest.length,
-        );
-      }
+      ContextSegmentTags.replaceWithSingle(
+        message,
+        source: ContextSource.chatHistory,
+        length: split.rest.length,
+      );
     }
   }
 
@@ -1460,9 +1758,8 @@ class MessageBuilderService {
       pass?.snapshotCarriers.add(message.id);
     }
 
-    final templ = (assistant?.messageTemplate ?? '{{ message }}').trim().isEmpty
-        ? '{{ message }}'
-        : (assistant!.messageTemplate);
+    final template = assistant?.messageTemplate ?? '';
+    final templ = template.trim().isEmpty ? '{{ message }}' : template;
     final templated = PromptTransformer.applyMessageTemplate(
       templ,
       role: 'user',
@@ -1479,36 +1776,32 @@ class MessageBuilderService {
     }
     final finalContent = '${memory.prefix}$templated$timeSuffix';
 
-    if (ContextLogger.enabled) {
-      for (final apiMessage in apiMessages) {
-        if ((apiMessage[internalRevisionIdKey] ?? '').toString() !=
-            message.id) {
-          continue;
-        }
-        if (memory.prefix.isNotEmpty) {
-          final kind = memory.snapshotKind;
-          ContextSegmentTags.write(apiMessage, [
-            ContextSegmentTags.item(
-              source: ContextSource.memorySnapshot,
-              length: memory.prefix.length,
-              meta: kind == null ? null : {'kind': kind},
-            ),
-            ContextSegmentTags.item(
-              source: ContextSource.chatHistory,
-              length: finalContent.length - memory.prefix.length,
-            ),
-          ]);
-        } else {
-          ContextSegmentTags.replaceWithSingle(
-            apiMessage,
-            source: ContextSource.chatHistory,
-            length: finalContent.length,
-          );
-        }
-        break;
+    for (final apiMessage in apiMessages) {
+      if ((apiMessage[internalRevisionIdKey] ?? '').toString() != message.id) {
+        continue;
       }
+      if (memory.prefix.isNotEmpty) {
+        final kind = memory.snapshotKind;
+        ContextSegmentTags.write(apiMessage, [
+          ContextSegmentTags.item(
+            source: ContextSource.memorySnapshot,
+            length: memory.prefix.length,
+            meta: kind == null ? null : {'kind': kind},
+          ),
+          ContextSegmentTags.item(
+            source: ContextSource.chatHistory,
+            length: finalContent.length - memory.prefix.length,
+          ),
+        ]);
+      } else {
+        ContextSegmentTags.replaceWithSingle(
+          apiMessage,
+          source: ContextSource.chatHistory,
+          length: finalContent.length,
+        );
+      }
+      break;
     }
-
     // Temporary drafts never land in message_rows; freezing would violate the
     // message_prompt_rows FK. Assemble in-memory only for those.
     if (persist && freezePrompt) {
@@ -1608,34 +1901,13 @@ class MessageBuilderService {
         resolvedSettings?.memoryInjectionMaxItems ??
         SettingsProvider.defaultMemoryInjectionMaxItems;
 
-    final fields = await repo.readProfileFields();
-    final totalByType = await repo.countVisibleMemoriesByType(
+    return readMemorySnapshot(
+      repository: repo,
       assistantId: assistant.id,
-    );
-    final hasAnyMemory = totalByType.values.any((count) => count > 0);
-    final hasProfile = fields.any((f) => f.value.trim().isNotEmpty);
-
-    final visible = hasAnyMemory
-        ? await repo.queryVisibleMemories(assistantId: assistant.id)
-        : const <MemoryEntry>[];
-    final profileBlock = MemoryBlockBuilder.buildProfileBlock(
-      fields: fields,
-      lang: lang,
-    );
-    final memoryBlock = MemoryBlockBuilder.buildMemoryBlock(
-      visible: visible,
-      totalByType: totalByType,
       lang: lang,
       maxItems: maxItems,
-    );
-    return (
-      prefix: MemoryBlockBuilder.buildFullSnapshotPrefix(
-        profileBlock,
-        memoryBlock,
-        lang,
-      ),
-      hash: MemoryBlockBuilder.hashBlocks(profileBlock, memoryBlock),
-      isEmpty: !hasProfile && !hasAnyMemory,
+      fullInjectionTypes:
+          resolvedSettings?.memoryFullInjectionTypes ?? const {},
     );
   }
 
@@ -1679,11 +1951,14 @@ class MessageBuilderService {
       if (revisionId.isEmpty || revisionId == currentMessageId) continue;
       historyUserIds.add(revisionId);
     }
+    final retainedCarriers = pass?.retainedSnapshotCarriers;
     final hasSnapshot =
         historyUserIds.any(
           (id) => pass?.snapshotCarriers.contains(id) ?? false,
         ) ||
-        await repo.anyPromptCarriesMemorySnapshot(historyUserIds);
+        (retainedCarriers != null
+            ? historyUserIds.any(retainedCarriers.contains)
+            : await repo.anyPromptCarriesMemorySnapshot(historyUserIds));
 
     // CRITICAL: compare against the prior hash BEFORE any write (appendix §6).
     // Writing first makes currentHash == injectedMemoryHash and no change is
@@ -1767,13 +2042,11 @@ class MessageBuilderService {
       );
       final sys = PromptTransformer.replacePlaceholders(prompt, vars);
       final sysMessage = <String, dynamic>{'role': 'system', 'content': sys};
-      if (ContextLogger.enabled) {
-        ContextSegmentTags.replaceWithSingle(
-          sysMessage,
-          source: ContextSource.systemPrompt,
-          length: sys.length,
-        );
-      }
+      ContextSegmentTags.replaceWithSingle(
+        sysMessage,
+        source: ContextSource.systemPrompt,
+        length: sys.length,
+      );
       apiMessages.insert(0, sysMessage);
     }
   }
@@ -1922,26 +2195,20 @@ class MessageBuilderService {
     bool conversationScoped = false,
   }) async {
     try {
-      List<InstructionInjection> actives = const <InstructionInjection>[];
-      try {
-        final ip = contextProvider.read<InstructionInjectionProvider>();
-        await ip.initialize();
-        final ids = conversationScoped
+      final ip = contextProvider.read<InstructionInjectionProvider>();
+      await ip.initialize();
+      final prompt = ip.promptFor(
+        assistantId,
+        instructionIds: conversationScoped
             ? ConversationPromptSettings.fromExtras(
                 conversation?.extras ?? const {},
               ).instructionIds
-            : ip.activeIdsFor(assistantId);
-        actives = ip.items.where((item) => ids.contains(item.id)).toList();
-      } catch (_) {}
-      final prompts = actives
-          .map((e) => e.prompt.trim())
-          .where((p) => p.isNotEmpty)
-          .toList(growable: false);
-      if (prompts.isNotEmpty) {
-        final lp = prompts.join('\n\n');
+            : null,
+      );
+      if (prompt.isNotEmpty) {
         _appendToSystemMessage(
           apiMessages,
-          lp,
+          prompt,
           source: ContextSource.instructionInjection,
         );
       }
@@ -1954,7 +2221,6 @@ class MessageBuilderService {
     Assistant? assistant, {
     String? conversationId,
     WorkspaceToolContext? workspaceContext,
-    List<AttachmentInfo> attachments = const [],
   }) async {
     try {
       final environmentProvider = contextProvider.read<EnvironmentProvider?>();
@@ -1971,14 +2237,13 @@ class MessageBuilderService {
       final environment = await environmentProvider?.loadExecutionConfig();
       final fragment = WorkspaceToolsService.buildPromptFragment(
         ctx,
-        attachments: attachments,
         environmentVariableNames: environment?.variables.keys ?? const [],
       );
       if (fragment.trim().isEmpty) return;
       _appendToSystemMessage(
         apiMessages,
         fragment,
-        source: ContextSource.instructionInjection,
+        source: ContextSource.workspace,
       );
     } catch (_) {}
   }
@@ -2010,12 +2275,13 @@ class MessageBuilderService {
       final fragment = buildAvailableSkillsFragment(
         skills,
         skillsModelRoot: skillsModelRoot,
+        selectedSkillIds: override ?? assistant?.skillIds ?? const [],
       );
       if (fragment.trim().isEmpty) return;
       _appendToSystemMessage(
         apiMessages,
         fragment,
-        source: ContextSource.instructionInjection,
+        source: ContextSource.skills,
       );
     } catch (_) {}
   }
@@ -2028,26 +2294,22 @@ class MessageBuilderService {
     bool conversationScoped = false,
     List<ChatMessage>? sourceMessages,
     bool persistActivation = true,
+    void Function(int before, int after)? onActivationPersisted,
   }) async {
     try {
-      List<WorldBook> all = const <WorldBook>[];
-      List<String> activeBookIds = const <String>[];
-
+      List<WorldBook> books = const <WorldBook>[];
       try {
         final wb = contextProvider.read<WorldBookProvider>();
         await wb.initialize();
-        all = wb.books;
-        activeBookIds = conversationScoped
-            ? ConversationPromptSettings.fromExtras(
-                conversation?.extras ?? const {},
-              ).worldBookIds
-            : wb.activeBookIdsFor(assistantId);
+        books = wb.activeBooksFor(
+          assistantId,
+          bookIds: conversationScoped
+              ? ConversationPromptSettings.fromExtras(
+                  conversation?.extras ?? const {},
+                ).worldBookIds
+              : null,
+        );
       } catch (_) {}
-
-      final activeSet = activeBookIds.toSet();
-      final books = all
-          .where((b) => b.enabled && activeSet.contains(b.id))
-          .toList(growable: false);
       final latest = conversation == null
           ? null
           : chatService.getConversation(conversation.id) ?? conversation;
@@ -2074,17 +2336,39 @@ class MessageBuilderService {
       if (usesTiming &&
           conversation != null &&
           historyMessages != null &&
-          historyMessages.isNotEmpty &&
           chatService.initialized) {
-        final fullHistory = await chatService.loadSelectedContextMessages(
+        // Context summaries replace request content, not the real-message clock.
+        // Locate the last persisted source group so regeneration cannot count
+        // future turns. An unsubmitted input in a usage preview follows that
+        // prefix; a summary-only preview still represents the current history.
+        final requestHistory = historyMessages
+            .where((message) => !ContextOperation.isSummary(message))
+            .toList();
+        final selected = await chatService.loadSelectedMessageProjections(
           conversation.id,
-          truncateIndex: -1,
-          limit: await chatService.resolveMessageCount(conversation.id),
-          throughRevisionId: historyMessages.last.id,
         );
-        if (fullHistory.isNotEmpty) {
-          historyMessages = fullHistory.where(isChatMessage).toList();
-        }
+        final selectedByGroup = {
+          for (final message in selected)
+            ContextHistory.group(message): message,
+        };
+        final lastRecorded = requestHistory.lastIndexWhere(
+          (message) =>
+              selectedByGroup.containsKey(ContextHistory.group(message)),
+        );
+        final cutoff = lastRecorded < 0
+            ? null
+            : selectedByGroup[ContextHistory.group(
+                requestHistory[lastRecorded],
+              )];
+        final fullHistory = await chatService.loadRawSelectedContextMessages(
+          conversation.id,
+          limit: await chatService.resolveMessageCount(conversation.id),
+          throughRevisionId: cutoff?.id,
+        );
+        historyMessages = [
+          ...fullHistory.where(isChatMessage),
+          ...requestHistory.skip(lastRecorded + 1),
+        ];
       }
       final result = WorldBookActivation.evaluate(
         books: books,
@@ -2103,6 +2387,9 @@ class MessageBuilderService {
                   {
                     'role': message.role,
                     'content': message.content,
+                    'quotes': [
+                      for (final quote in message.quotes) quote.toJson(),
+                    ],
                     'attachments': [
                       for (final part in message.parts)
                         if (part is ImagePart || part is FilePart)
@@ -2116,6 +2403,7 @@ class MessageBuilderService {
           conversation != null &&
           ((result.state['effects'] as Map).isNotEmpty ||
               previous.isNotEmpty)) {
+        final before = chatService.contextRevision(conversation.id);
         await chatService.updateConversationExtras(conversation.id, (extras) {
           final next = Map<String, dynamic>.from(extras);
           if ((result.state['effects'] as Map).isEmpty) {
@@ -2125,6 +2413,10 @@ class MessageBuilderService {
           }
           return next;
         });
+        onActivationPersisted?.call(
+          before,
+          chatService.contextRevision(conversation.id),
+        );
       }
       final triggered = result.entries;
       if (triggered.isEmpty) return;
@@ -2159,14 +2451,12 @@ class MessageBuilderService {
                   'role': 'user',
                   'content': wrapSystemTag(merged),
                 };
-          if (ContextLogger.enabled) {
-            ContextSegmentTags.replaceWithSingle(
-              message,
-              source: ContextSource.worldBook,
-              length: (message['content'] ?? '').toString().length,
-              meta: {'position': position.toJson()},
-            );
-          }
+          ContextSegmentTags.replaceWithSingle(
+            message,
+            source: ContextSource.worldBook,
+            length: (message['content'] ?? '').toString().length,
+            meta: {'position': position.toJson()},
+          );
           result.add(message);
         }
         return result;
@@ -2215,30 +2505,28 @@ class MessageBuilderService {
             sb.write(afterContent);
           }
           apiMessages[systemIndex]['content'] = sb.toString();
-          if (ContextLogger.enabled) {
-            final sysMsg = apiMessages[systemIndex];
-            if (beforeContent.isNotEmpty) {
-              ContextSegmentTags.prepend(
-                sysMsg,
-                source: ContextSource.worldBook,
-                length: beforeContent.length + 1,
-                meta: {
-                  'position': WorldBookInjectionPosition.beforeSystemPrompt
-                      .toJson(),
-                },
-              );
-            }
-            if (afterContent.isNotEmpty) {
-              ContextSegmentTags.append(
-                sysMsg,
-                source: ContextSource.worldBook,
-                length: 1 + afterContent.length,
-                meta: {
-                  'position': WorldBookInjectionPosition.afterSystemPrompt
-                      .toJson(),
-                },
-              );
-            }
+          final sysMsg = apiMessages[systemIndex];
+          if (beforeContent.isNotEmpty) {
+            ContextSegmentTags.prepend(
+              sysMsg,
+              source: ContextSource.worldBook,
+              length: beforeContent.length + 1,
+              meta: {
+                'position': WorldBookInjectionPosition.beforeSystemPrompt
+                    .toJson(),
+              },
+            );
+          }
+          if (afterContent.isNotEmpty) {
+            ContextSegmentTags.append(
+              sysMsg,
+              source: ContextSource.worldBook,
+              length: 1 + afterContent.length,
+              meta: {
+                'position': WorldBookInjectionPosition.afterSystemPrompt
+                    .toJson(),
+              },
+            );
           }
         } else {
           final sb = StringBuffer();
@@ -2252,47 +2540,45 @@ class MessageBuilderService {
               'role': 'system',
               'content': sb.toString(),
             };
-            if (ContextLogger.enabled) {
-              if (beforeContent.isNotEmpty && afterContent.isNotEmpty) {
-                ContextSegmentTags.write(created, [
-                  ContextSegmentTags.item(
-                    source: ContextSource.worldBook,
-                    length: beforeContent.length + 1,
-                    meta: {
-                      'position': WorldBookInjectionPosition.beforeSystemPrompt
-                          .toJson(),
-                    },
-                  ),
-                  ContextSegmentTags.item(
-                    source: ContextSource.worldBook,
-                    length: afterContent.length,
-                    meta: {
-                      'position': WorldBookInjectionPosition.afterSystemPrompt
-                          .toJson(),
-                    },
-                  ),
-                ]);
-              } else if (beforeContent.isNotEmpty) {
-                ContextSegmentTags.replaceWithSingle(
-                  created,
+            if (beforeContent.isNotEmpty && afterContent.isNotEmpty) {
+              ContextSegmentTags.write(created, [
+                ContextSegmentTags.item(
                   source: ContextSource.worldBook,
-                  length: beforeContent.length,
+                  length: beforeContent.length + 1,
                   meta: {
                     'position': WorldBookInjectionPosition.beforeSystemPrompt
                         .toJson(),
                   },
-                );
-              } else {
-                ContextSegmentTags.replaceWithSingle(
-                  created,
+                ),
+                ContextSegmentTags.item(
                   source: ContextSource.worldBook,
                   length: afterContent.length,
                   meta: {
                     'position': WorldBookInjectionPosition.afterSystemPrompt
                         .toJson(),
                   },
-                );
-              }
+                ),
+              ]);
+            } else if (beforeContent.isNotEmpty) {
+              ContextSegmentTags.replaceWithSingle(
+                created,
+                source: ContextSource.worldBook,
+                length: beforeContent.length,
+                meta: {
+                  'position': WorldBookInjectionPosition.beforeSystemPrompt
+                      .toJson(),
+                },
+              );
+            } else {
+              ContextSegmentTags.replaceWithSingle(
+                created,
+                source: ContextSource.worldBook,
+                length: afterContent.length,
+                meta: {
+                  'position': WorldBookInjectionPosition.afterSystemPrompt
+                      .toJson(),
+                },
+              );
             }
             apiMessages.insert(0, created);
           }
@@ -2331,34 +2617,37 @@ class MessageBuilderService {
         );
       }
 
-      // AT_DEPTH: insert at depth from end (depth=1 means before last message).
+      // AT_DEPTH: depth=0 appends; depth=1 inserts before the last message.
       final atDepthInjections = byPosition[WorldBookInjectionPosition.atDepth];
       if (atDepthInjections != null && atDepthInjections.isNotEmpty) {
         final byDepth = <int, List<WorldBookEntry>>{};
         for (final e in atDepthInjections) {
-          final depth = (e.injectDepth <= 0 ? 1 : e.injectDepth)
-              .clamp(1, 200)
-              .toInt();
+          final depth = e.injectDepth.clamp(0, 200);
           byDepth.putIfAbsent(depth, () => <WorldBookEntry>[]).add(e);
         }
 
         final depths = byDepth.keys.toList(growable: false)
           ..sort((a, b) => b.compareTo(a));
+        final originalLength = apiMessages.length;
+        final historyStart = apiMessages
+            .takeWhile((message) => message['role'] == 'system')
+            .length;
+        var insertedCount = 0;
 
         for (final depth in depths) {
           final injections = byDepth[depth] ?? const <WorldBookEntry>[];
-          var insertIndex = (apiMessages.length - depth).clamp(
-            0,
-            apiMessages.length,
-          );
+          // Anchor to the original history so multiple oversized depths keep
+          // their order after clamping to the start of the chat.
+          var insertIndex =
+              (originalLength - depth).clamp(historyStart, originalLength) +
+              insertedCount;
           insertIndex = findSafeInsertIndex(apiMessages, insertIndex);
-          apiMessages.insertAll(
-            insertIndex,
-            createMergedInjectionMessages(
-              injections,
-              position: WorldBookInjectionPosition.atDepth,
-            ),
+          final messages = createMergedInjectionMessages(
+            injections,
+            position: WorldBookInjectionPosition.atDepth,
           );
+          apiMessages.insertAll(insertIndex, messages);
+          insertedCount += messages.length;
         }
       }
     } catch (_) {}
@@ -2373,7 +2662,7 @@ class MessageBuilderService {
     if (apiMessages.isNotEmpty && apiMessages.first['role'] == 'system') {
       apiMessages[0]['content'] =
           '${(apiMessages[0]['content'] ?? '') as String}\n\n$content';
-      if (ContextLogger.enabled && source != null) {
+      if (source != null) {
         ContextSegmentTags.append(
           apiMessages[0],
           source: source,
@@ -2382,7 +2671,7 @@ class MessageBuilderService {
       }
     } else {
       final message = <String, dynamic>{'role': 'system', 'content': content};
-      if (ContextLogger.enabled && source != null) {
+      if (source != null) {
         ContextSegmentTags.append(
           message,
           source: source,
@@ -2400,36 +2689,41 @@ class MessageBuilderService {
   ) {
     if ((assistant?.limitContextMessages ?? false) &&
         (assistant?.contextMessageSize ?? 0) > 0) {
-      final int keep = (assistant!.contextMessageSize).clamp(
+      final keep = assistant!.contextMessageSize.clamp(
         Assistant.minContextMessageSize,
         Assistant.maxContextMessageSize,
       );
-      int startIdx = 0;
-      if (apiMessages.isNotEmpty && apiMessages.first['role'] == 'system') {
-        startIdx = 1;
+      final counted = apiMessages
+          .where((message) => message['_contextSummary'] != true)
+          .toList();
+      final start = counted.isNotEmpty && counted.first['role'] == 'system'
+          ? 1
+          : 0;
+      var cut = counted.length - keep;
+      if (cut <= start) return;
+      while (cut > start && counted[cut]['role'] != 'user') {
+        cut--;
       }
-      final tail = apiMessages.sublist(startIdx);
-      if (tail.length > keep) {
-        final trimmed = tail.sublist(tail.length - keep);
-        apiMessages
-          ..removeRange(startIdx, apiMessages.length)
-          ..addAll(trimmed);
-      }
-      // Context trimming can cut in the middle of a tool-call triplet; avoid sending dangling tool messages.
-      while (apiMessages.length > startIdx &&
-          (apiMessages[startIdx]['role'] ?? '').toString() == 'tool') {
-        apiMessages.removeAt(startIdx);
-      }
+      final removed = counted.sublist(start, cut).toSet();
+      apiMessages.removeWhere(removed.contains);
     }
   }
 
   /// Convert local Markdown image links to inline base64 for model context.
   Future<void> inlineLocalImages(List<Map<String, dynamic>> apiMessages) async {
     for (int i = 0; i < apiMessages.length; i++) {
+      // Typed tool images are resolved from result metadata at the provider
+      // boundary. Keep their Markdown intact; tool text never authorizes reads.
+      if (apiMessages[i]['role'] == 'tool') {
+        continue;
+      }
       final s = (apiMessages[i]['content'] ?? '').toString();
       if (s.isNotEmpty) {
         apiMessages[i]['content'] =
-            await MarkdownMediaSanitizer.inlineLocalImagesToBase64(s);
+            await MarkdownMediaSanitizer.inlineLocalImagesToBase64(
+              s,
+              literalText: internalLiteralText(apiMessages[i]),
+            );
       }
     }
   }
