@@ -23,6 +23,8 @@ class NianlunClient {
 
   static const int syncMessageLimit = 30;
   static const String internalWakePromptPrefix = '〔年轮自唤醒〕';
+  static const String internalWakeTriggerText =
+      '这是一次后台自主唤醒，不是她发来的新消息。请回看你们最近的聊天、已有记忆和人格，自己判断是否真有想对她说的话；有就像平常一样回复，没有就保持沉默。不要回答年轮，也不要为了这次唤醒编造话题。只有你自己确实想做的事才调用工具。';
 
   static bool isInternalWakePrompt(ChatMessage message) =>
       message.role == 'user' &&

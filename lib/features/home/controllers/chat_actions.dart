@@ -24,6 +24,7 @@ import '../../../core/services/api/stream/stream_chunk.dart';
 import '../../../core/services/api/stream/stream_chunk_handler.dart';
 import '../../../core/services/api/tool_call_cancellation.dart';
 import '../../../core/services/chat/chat_service.dart';
+import '../../../core/services/nianlun/nianlun_client.dart';
 import '../../../core/services/mobile_background.dart';
 import '../../../core/services/logging/flutter_logger.dart';
 import '../../../l10n/app_localizations.dart';
@@ -1293,7 +1294,9 @@ class ChatActions {
           );
       final existingContextMessages = <ChatMessage>[
         for (final message in persistedContext)
-          if (message.id != userMessage.id && message.id != assistantMessage.id)
+          if (message.id != userMessage.id &&
+              message.id != assistantMessage.id &&
+              !NianlunClient.isInternalWakePrompt(message))
             message,
       ];
 

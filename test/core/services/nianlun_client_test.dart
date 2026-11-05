@@ -118,6 +118,16 @@ void main() {
       expect(NianlunClient.isInternalWakePrompt(prompt), isTrue);
       expect(NianlunClient.buildMessages([prompt]), isEmpty);
     });
+
+    test(
+      'internal wake asks for a context-led check without room instructions',
+      () {
+        expect(NianlunClient.internalWakeTriggerText, contains('最近的聊天'));
+        expect(NianlunClient.internalWakeTriggerText, contains('自己判断'));
+        expect(NianlunClient.internalWakeTriggerText, isNot(contains('房间内容')));
+        expect(NianlunClient.internalWakeTriggerText, contains('不要回答年轮'));
+      },
+    );
   });
 
   group('NianlunDelivery', () {

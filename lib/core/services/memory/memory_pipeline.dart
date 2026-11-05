@@ -14,6 +14,7 @@ import '../../providers/memory_provider_v2.dart';
 import '../../providers/settings_provider.dart';
 import '../api/chat_api_service.dart';
 import '../chat/chat_service.dart';
+import '../nianlun/nianlun_client.dart';
 import 'memory_block_builder.dart';
 import 'memory_extractor.dart';
 import 'memory_gatekeeper.dart';
@@ -470,6 +471,7 @@ class MemoryPipelineService {
     final withOrder = <({ChatMessage message, int order})>[];
     for (final m in selected) {
       if (m.isStreaming) continue;
+      if (NianlunClient.isInternalWakePrompt(m)) continue;
       final order = chatService.getMessageIndex(job.conversationId, m.id);
       if (order < 0) continue;
       if (order <= watermark) continue;

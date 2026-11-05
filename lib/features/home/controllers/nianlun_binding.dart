@@ -306,7 +306,7 @@ class NianlunBinding {
       final result = await runtime.sendScheduledMessage(
         input: ChatInputData(
           text:
-              '${NianlunClient.internalWakePromptPrefix}这是你自己醒来的一轮。请按你平时的方式使用记忆、工具和人格处理下面的房间内容；如果不想打扰她，可以保持沉默。\n\n${request.prompt}',
+              '${NianlunClient.internalWakePromptPrefix}${NianlunClient.internalWakeTriggerText}',
         ),
         conversation: target,
         assistant: assistant,
