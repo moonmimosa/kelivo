@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +11,7 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/conversation_prompt_settings.dart';
 import '../../../core/models/chat_input_data.dart';
+import '../../../core/models/message_part.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/user_provider.dart';
 import '../../../core/services/chat/chat_service.dart';
@@ -113,12 +115,17 @@ class NianlunBinding {
       );
       await client.syncWindow(windowId, payload);
       if (pendingWake != null) {
+        final visibleReply = ThinkingTagParser.parseWithRanges(
+          message.content,
+        ).visibleContent.trim();
         await client.completeWakeRequest(
           windowId,
           pendingWake.request.id,
-          ok: message.content.trim().isNotEmpty,
-          outcome: message.content.trim().isNotEmpty ? 'replied' : 'silent',
-          contentChars: message.content.trim().length,
+          ok: visibleReply.isNotEmpty,
+          outcome: visibleReply.isNotEmpty ? 'replied' : 'silent',
+          contentChars: visibleReply.length,
+          content: visibleReply,
+          toolNames: _toolNames(message),
         );
       }
     } catch (e) {
@@ -299,7 +306,7 @@ class NianlunBinding {
       final result = await runtime.sendScheduledMessage(
         input: ChatInputData(
           text:
-              '〔年轮自唤醒〕这是你自己醒来的一轮。请按你平时的方式使用记忆、工具和人格处理下面的房间内容；如果不想打扰她，可以保持沉默。\n\n${request.prompt}',
+              '${NianlunClient.internalWakePromptPrefix}这是你自己醒来的一轮。请按你平时的方式使用记忆、工具和人格处理下面的房间内容；如果不想打扰她，可以保持沉默。\n\n${request.prompt}',
         ),
         conversation: target,
         assistant: assistant,
@@ -326,6 +333,22 @@ class NianlunBinding {
         }
       }
     }
+  }
+
+  List<String> _toolNames(ChatMessage message) {
+    final names = <String>{};
+    for (final part in message.parts.whereType<ToolCallPart>()) {
+      try {
+        final payload = jsonDecode(part.payloadJson);
+        if (payload is Map) {
+          final name = (payload['name'] ?? '').toString().trim();
+          if (name.isNotEmpty) names.add(name);
+        }
+      } on FormatException {
+        continue;
+      }
+    }
+    return names.toList();
   }
 
   /// 他的话放进哪里：正在看的那个对话（如果属于这个助手且已经保存），

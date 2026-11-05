@@ -79,6 +79,13 @@ void main() {
             timestamp: t0,
           ),
           ChatMessage(
+            id: 'wake-prompt',
+            role: 'user',
+            content: '${NianlunClient.internalWakePromptPrefix}内部提示',
+            conversationId: 'c',
+            timestamp: t0,
+          ),
+          ChatMessage(
             id: 'a',
             role: 'assistant',
             content: '<think>secret</think>visible',
@@ -100,6 +107,17 @@ void main() {
         );
       },
     );
+
+    test('internal wake prompts are excluded from synchronized history', () {
+      final prompt = ChatMessage(
+        id: 'wake-prompt',
+        role: 'user',
+        content: '  ${NianlunClient.internalWakePromptPrefix}房间内容',
+        conversationId: 'c',
+      );
+      expect(NianlunClient.isInternalWakePrompt(prompt), isTrue);
+      expect(NianlunClient.buildMessages([prompt]), isEmpty);
+    });
   });
 
   group('NianlunDelivery', () {
