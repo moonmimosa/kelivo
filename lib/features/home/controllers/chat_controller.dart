@@ -5,6 +5,7 @@ import '../../../core/database/chat_database_repository.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/services/chat/chat_service.dart';
+import '../../../core/services/nianlun/nianlun_client.dart';
 import '../../../core/services/screen_wakelock.dart';
 import '../../../core/utils/scheduler_idle.dart';
 import 'message_render_model.dart';
@@ -1237,14 +1238,17 @@ class ChatController extends ChangeNotifier {
       return _messagesWithVisibleGroupsCache!;
     }
 
+    final messages = _messages
+        .where((message) => !NianlunClient.isInternalWakePrompt(message))
+        .toList(growable: false);
     final conversation = _currentConversation;
-    if (conversation == null || _messages.isEmpty) {
-      return _messagesWithVisibleGroupsCache = _messages;
+    if (conversation == null || messages.isEmpty) {
+      return _messagesWithVisibleGroupsCache = messages;
     }
 
     final targetGroupIds = <String>{};
     final versionedGroupIds = <String>{};
-    for (final message in _messages) {
+    for (final message in messages) {
       final groupId = message.groupId ?? message.id;
       if (_versionSelections.containsKey(groupId)) {
         targetGroupIds.add(groupId);
@@ -1255,7 +1259,7 @@ class ChatController extends ChangeNotifier {
       }
     }
     if (targetGroupIds.isEmpty) {
-      return _messagesWithVisibleGroupsCache = _messages;
+      return _messagesWithVisibleGroupsCache = messages;
     }
 
     final visibleVersions = _chatService.getMessagesForGroups(
@@ -1263,11 +1267,11 @@ class ChatController extends ChangeNotifier {
       targetGroupIds,
     );
     if (visibleVersions.isEmpty) {
-      return _messagesWithVisibleGroupsCache = _messages;
+      return _messagesWithVisibleGroupsCache = messages;
     }
 
     final windowMessagesById = {
-      for (final message in _messages) message.id: message,
+      for (final message in messages) message.id: message,
     };
     final visibleIds = windowMessagesById.keys;
     final byGroup = <String, List<ChatMessage>>{};
@@ -1284,16 +1288,16 @@ class ChatController extends ChangeNotifier {
         versionedGroupIds,
       );
     }
-    final firstLoadedGroupId = _messages.isEmpty
+    final firstLoadedGroupId = messages.isEmpty
         ? null
-        : (_messages.first.groupId ?? _messages.first.id);
+        : (messages.first.groupId ?? messages.first.id);
     final previousLoadedGroupId = _previousLoadedMessageGroupId(
       conversation.id,
     );
 
     final result = <ChatMessage>[];
     final emitted = <String>{};
-    for (final message in _messages) {
+    for (final message in messages) {
       final groupId = message.groupId ?? message.id;
       final groupMessages = byGroup[groupId] ?? <ChatMessage>[message];
       final groupAnchorIndex = firstIndices[groupId] ?? _loadedStartIndex;
@@ -1381,6 +1385,7 @@ class ChatController extends ChangeNotifier {
     final limit = raw.clamp(0, _messages.length);
     var count = 0;
     for (var index = 0; index < limit; index++) {
+      if (NianlunClient.isInternalWakePrompt(_messages[index])) continue;
       if (seen.add(_messages[index].groupId ?? _messages[index].id)) count++;
     }
     return count - 1;

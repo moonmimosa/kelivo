@@ -358,6 +358,43 @@ void main() {
     });
 
     test(
+      'wake control prompt stays in generation history but not the timeline',
+      () async {
+        messages = <ChatMessage>[
+          ChatMessage(
+            id: 'wake-prompt',
+            role: 'user',
+            content: '〔年轮自唤醒〕房间里的内部提示',
+            conversationId: conversation.id,
+          ),
+          ChatMessage(
+            id: 'wake-reply',
+            role: 'assistant',
+            content: '我醒啦。',
+            conversationId: conversation.id,
+          ),
+        ];
+        conversation = Conversation(
+          id: conversation.id,
+          title: conversation.title,
+          messageIds: messages.map((message) => message.id).toList(),
+        );
+        chatService = _FakeLazyChatService(messages);
+        controller.dispose();
+        controller = ChatController(chatService: chatService);
+        await controller.setCurrentConversationAndLoad(conversation);
+
+        expect(controller.messages.map((message) => message.id), [
+          'wake-prompt',
+          'wake-reply',
+        ]);
+        expect(controller.collapsedMessages.map((message) => message.id), [
+          'wake-reply',
+        ]);
+      },
+    );
+
+    test(
       'streaming and final snapshots survive viewport intent changes',
       () async {
         final placeholder = ChatMessage(

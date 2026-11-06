@@ -237,6 +237,7 @@ void main() {
       expect(body['model_id'], 'deepseek-flash');
       expect(body['assistant_name'], '小狗·测试');
       expect(body['source'], 'kelivo');
+      expect(body['memory_context'], '');
       final sent = (body['messages'] as List).cast<Map<String, dynamic>>();
       expect(sent.map((m) => m['role']), ['user', 'assistant']);
       expect(sent.map((m) => m['content']), ['今天好累', '先吃点东西。']);

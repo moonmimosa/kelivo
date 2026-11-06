@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
@@ -10,9 +11,12 @@ import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/conversation_prompt_settings.dart';
 import '../../../core/models/chat_input_data.dart';
+import '../../../core/models/message_part.dart';
 import '../../../core/providers/assistant_provider.dart';
+import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/user_provider.dart';
 import '../../../core/services/chat/chat_service.dart';
+import '../services/message_builder_service.dart';
 import '../../../core/services/chat/prompt_transformer.dart';
 import '../../../core/services/nianlun/nianlun_client.dart';
 import '../../chat/utils/thinking_tag_parser.dart';
@@ -30,6 +34,7 @@ class NianlunBinding {
     required this.context,
     required this.chat,
     required this.chatController,
+    this.messageBuilderService,
     this.viewModel,
     this.httpClient,
   });
@@ -40,6 +45,7 @@ class NianlunBinding {
   final BuildContext context;
   final ChatService chat;
   final ChatController chatController;
+  final MessageBuilderService? messageBuilderService;
   final HomeViewModel? viewModel;
 
   /// 测试时注入；正常运行为 null（每次请求自己开关连接）。
@@ -59,17 +65,65 @@ class NianlunBinding {
   void start() {
     _timer?.cancel();
     _timer = Timer.periodic(pollInterval, (_) => unawaited(poll()));
+    unawaited(syncCurrentConversation());
     unawaited(poll());
   }
 
-  void onAppResumed() => unawaited(poll(force: true));
+  void onAppResumed() {
+    unawaited(syncCurrentConversation());
+    unawaited(poll(force: true));
+  }
 
-  void onConversationSwitched() => unawaited(poll());
+  void onConversationSwitched() {
+    unawaited(syncCurrentConversation());
+    unawaited(poll());
+  }
 
   void dispose() {
     _disposed = true;
     _timer?.cancel();
     _timer = null;
+  }
+
+  Future<void> syncCurrentConversation() async {
+    if (_disposed || _syncing || !context.mounted) return;
+    final conversation = chatController.currentConversation;
+    if (conversation == null) return;
+    final assistant = _assistantFor(conversation);
+    if (assistant == null || !assistant.nianlunEnabled) return;
+    final client = NianlunClient(
+      baseUrl: assistant.nianlunBaseUrl,
+      token: assistant.nianlunToken,
+      httpClient: httpClient,
+    );
+    if (!client.isConfigured) return;
+
+    _syncing = true;
+    try {
+      final modelId = assistant.chatModelId;
+      final history = await chat.loadSelectedContextMessages(
+        conversation.id,
+        truncateIndex: conversation.truncateIndex,
+        limit: NianlunClient.syncMessageLimit,
+      );
+      final memoryContext = await _memoryContext(assistant);
+      final payload = NianlunClient.buildWindowPayload(
+        systemPrompt: _renderSystemPrompt(assistant, conversation, modelId),
+        modelId: modelId,
+        memoryContext: memoryContext,
+        assistantName: assistant.name,
+        messages: NianlunClient.buildMessages(
+          history,
+          visibleText: (text) =>
+              ThinkingTagParser.parseWithRanges(text).visibleContent,
+        ),
+      );
+      await client.syncWindow(_windowIdFor(assistant), payload);
+    } catch (e) {
+      debugPrint('[nianlun] current-window sync failed: $e');
+    } finally {
+      _syncing = false;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -102,9 +156,11 @@ class NianlunBinding {
         truncateIndex: conversation.truncateIndex,
         limit: NianlunClient.syncMessageLimit,
       );
+      final memoryContext = await _memoryContext(assistant);
       final payload = NianlunClient.buildWindowPayload(
         systemPrompt: systemPrompt,
         modelId: modelId,
+        memoryContext: memoryContext,
         assistantName: assistant.name,
         messages: NianlunClient.buildMessages(
           history,
@@ -114,12 +170,17 @@ class NianlunBinding {
       );
       await client.syncWindow(windowId, payload);
       if (pendingWake != null) {
+        final visibleReply = ThinkingTagParser.parseWithRanges(
+          message.content,
+        ).visibleContent.trim();
         await client.completeWakeRequest(
           windowId,
           pendingWake.request.id,
-          ok: message.content.trim().isNotEmpty,
-          outcome: message.content.trim().isNotEmpty ? 'replied' : 'silent',
-          contentChars: message.content.trim().length,
+          ok: visibleReply.isNotEmpty,
+          outcome: visibleReply.isNotEmpty ? 'replied' : 'silent',
+          contentChars: visibleReply.length,
+          content: visibleReply,
+          toolNames: _toolNames(message),
         );
       }
     } catch (e) {
@@ -160,6 +221,19 @@ class NianlunBinding {
       userNickname: context.read<UserProvider>().name,
     );
     return PromptTransformer.replacePlaceholders(prompt, vars);
+  }
+
+  Future<String> _memoryContext(Assistant assistant) async {
+    if (messageBuilderService == null || !assistant.enableMemory) return '';
+    try {
+      return await messageBuilderService!.detachedMemoryPrefix(
+        assistant: assistant,
+        settings: context.read<SettingsProvider>(),
+      );
+    } catch (e) {
+      debugPrint('[nianlun] memory snapshot failed: $e');
+      return '';
+    }
   }
 
   Assistant? _assistantFor(Conversation conversation) {
@@ -300,7 +374,7 @@ class NianlunBinding {
       final result = await runtime.sendScheduledMessage(
         input: ChatInputData(
           text:
-              '〔年轮自唤醒〕这是你自己醒来的一轮。请按你平时的方式使用记忆、工具和人格处理下面的房间内容；如果不想打扰她，可以保持沉默。\n\n${request.prompt}',
+              '${NianlunClient.internalWakePromptPrefix}这是你自己醒来的一轮。请按你平时的方式使用记忆、工具和人格处理下面的房间内容；如果不想打扰她，可以保持沉默。\n\n${request.prompt}',
         ),
         conversation: target,
         assistant: assistant,
@@ -327,6 +401,22 @@ class NianlunBinding {
         }
       }
     }
+  }
+
+  List<String> _toolNames(ChatMessage message) {
+    final names = <String>{};
+    for (final part in message.parts.whereType<ToolCallPart>()) {
+      try {
+        final payload = jsonDecode(part.payloadJson);
+        if (payload is Map) {
+          final name = (payload['name'] ?? '').toString().trim();
+          if (name.isNotEmpty) names.add(name);
+        }
+      } on FormatException {
+        continue;
+      }
+    }
+    return names.toList();
   }
 
   /// 他的话放进哪里：正在看的那个对话（如果属于这个助手且已经保存），

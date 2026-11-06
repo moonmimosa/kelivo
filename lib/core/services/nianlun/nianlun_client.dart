@@ -21,7 +21,13 @@ class NianlunClient {
   final Duration timeout;
   final http.Client? _client;
 
-  static const int syncMessageLimit = 30;
+  /// Number of visible chat messages mirrored to the Wake runtime.
+  static const int syncMessageLimit = 100;
+  static const String internalWakePromptPrefix = '〔年轮自唤醒〕';
+
+  static bool isInternalWakePrompt(ChatMessage message) =>
+      message.role == 'user' &&
+      message.content.trimLeft().startsWith(internalWakePromptPrefix);
 
   bool get isConfigured =>
       normalizeBaseUrl(baseUrl).isNotEmpty && token.trim().isNotEmpty;
@@ -53,6 +59,7 @@ class NianlunClient {
     final out = <Map<String, dynamic>>[];
     for (final m in messages) {
       if (m.role != 'user' && m.role != 'assistant') continue;
+      if (isInternalWakePrompt(m)) continue;
       if (m.isStreaming) continue;
       final raw = m.content;
       final text = (visibleText?.call(raw) ?? raw).trim();
@@ -72,11 +79,13 @@ class NianlunClient {
     required String systemPrompt,
     required String? modelId,
     required List<Map<String, dynamic>> messages,
+    String memoryContext = '',
     String? assistantName,
   }) => {
     'system_prompt': systemPrompt,
     'model_id': modelId,
     'messages': messages,
+    'memory_context': memoryContext,
     'assistant_name': assistantName,
     'source': 'kelivo',
   };
@@ -181,6 +190,8 @@ class NianlunClient {
     required bool ok,
     required String outcome,
     required int contentChars,
+    String content = '',
+    List<String> toolNames = const <String>[],
     String? error,
   }) => _withClient((client) async {
     final r = await client
@@ -193,6 +204,8 @@ class NianlunClient {
             'ok': ok,
             'outcome': outcome,
             'content_chars': contentChars,
+            'content': content,
+            'tool_names': toolNames,
             if (error != null) 'error': error,
           }),
         )

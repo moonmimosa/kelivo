@@ -4,6 +4,10 @@ import 'package:Kelivo/core/services/nianlun/nianlun_client.dart';
 import 'package:Kelivo/features/home/controllers/nianlun_binding.dart';
 
 void main() {
+  test('syncs one hundred visible messages', () {
+    expect(NianlunClient.syncMessageLimit, 100);
+  });
+
   test('delivery message ids are stable per window and delivery', () {
     expect(NianlunBinding.deliveryMessageId('w1', 7), 'nianlun-w1-7');
     expect(
@@ -79,6 +83,13 @@ void main() {
             timestamp: t0,
           ),
           ChatMessage(
+            id: 'wake-prompt',
+            role: 'user',
+            content: '${NianlunClient.internalWakePromptPrefix}内部提示',
+            conversationId: 'c',
+            timestamp: t0,
+          ),
+          ChatMessage(
             id: 'a',
             role: 'assistant',
             content: '<think>secret</think>visible',
@@ -100,6 +111,17 @@ void main() {
         );
       },
     );
+
+    test('internal wake prompts are identified and excluded from sync', () {
+      final prompt = ChatMessage(
+        id: 'wake',
+        role: 'user',
+        content: '  ${NianlunClient.internalWakePromptPrefix}房间内容',
+        conversationId: 'c',
+      );
+      expect(NianlunClient.isInternalWakePrompt(prompt), isTrue);
+      expect(NianlunClient.buildMessages([prompt]), isEmpty);
+    });
   });
 
   group('NianlunDelivery', () {
@@ -124,10 +146,12 @@ void main() {
       systemPrompt: 'persona',
       modelId: 'deepseek-chat',
       messages: const [],
+      memoryContext: '<user_profile>长期记忆</user_profile>',
       assistantName: '小狗·测试',
     );
     expect(p['source'], 'kelivo');
     expect(p['system_prompt'], 'persona');
     expect(p['assistant_name'], '小狗·测试');
+    expect(p['memory_context'], '<user_profile>长期记忆</user_profile>');
   });
 }
