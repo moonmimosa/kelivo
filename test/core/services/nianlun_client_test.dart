@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/services/memory/memory_block_builder.dart';
+import 'package:Kelivo/core/services/memory/memory_prompts.dart';
 import 'package:Kelivo/core/services/nianlun/nianlun_client.dart';
 import 'package:Kelivo/features/home/controllers/nianlun_binding.dart';
 
@@ -121,6 +123,50 @@ void main() {
       );
       expect(NianlunClient.isInternalWakePrompt(prompt), isTrue);
       expect(NianlunClient.buildMessages([prompt]), isEmpty);
+    });
+
+    test(
+      'strips frozen memory snapshot prefixes but keeps the message body',
+      () {
+        final prefix = MemoryBlockBuilder.buildFullSnapshotPrefix(
+          '<user_profile/>\n',
+          '<user_memory type="identity"/>\n'
+              '<user_memory type="workflow"/>\n'
+              '<user_memory type="voice"/>\n'
+              '<user_memory type="instruction"/>\n',
+          MemoryPromptLang.zh,
+        );
+        final message = ChatMessage(
+          id: 'with-snapshot',
+          role: 'user',
+          content: '$prefix这是我真正发的消息',
+          conversationId: 'c',
+        );
+
+        expect(
+          NianlunClient.buildMessages([message]).single['content'],
+          '这是我真正发的消息',
+        );
+      },
+    );
+
+    test('drops a message that contains only a frozen memory snapshot', () {
+      final prefix = MemoryBlockBuilder.buildFullSnapshotPrefix(
+        '<user_profile/>\n',
+        '<user_memory type="identity"/>\n'
+            '<user_memory type="workflow"/>\n'
+            '<user_memory type="voice"/>\n'
+            '<user_memory type="instruction"/>\n',
+        MemoryPromptLang.zh,
+      );
+      final message = ChatMessage(
+        id: 'snapshot-only',
+        role: 'user',
+        content: prefix,
+        conversationId: 'c',
+      );
+
+      expect(NianlunClient.buildMessages([message]), isEmpty);
     });
   });
 

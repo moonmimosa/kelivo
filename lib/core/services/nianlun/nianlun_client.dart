@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../models/chat_message.dart';
+import '../memory/memory_block_builder.dart';
 
 /// 年轮（nianlun）服务器的薄客户端。
 ///
@@ -61,7 +62,11 @@ class NianlunClient {
       if (m.role != 'user' && m.role != 'assistant') continue;
       if (isInternalWakePrompt(m)) continue;
       if (m.isStreaming) continue;
-      final raw = m.content;
+      // Older prompt snapshots can be frozen at the start of a user message.
+      // Keep the actual message text, but do not send that snapshot again:
+      // the current snapshot travels separately as memory_context.
+      final raw =
+          MemoryBlockBuilder.splitInjectedPrefix(m.content)?.rest ?? m.content;
       final text = (visibleText?.call(raw) ?? raw).trim();
       if (text.isEmpty) continue;
       out.add({
