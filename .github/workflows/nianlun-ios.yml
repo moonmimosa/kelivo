@@ -22,7 +22,7 @@ env:
 jobs:
   ios:
     name: 构建 iOS（年轮测试包）
-    runs-on: macos-15-intel
+    runs-on: macos-26-arm64
 
     steps:
       - name: 📦 检出代码
