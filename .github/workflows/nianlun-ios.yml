@@ -50,7 +50,7 @@ jobs:
 
       - name: 📝 获取版本号
         run: |
-          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' \r')
           SHORT_SHA=$(git rev-parse --short HEAD)
           VERSION="${VERSION}_nianlun_${SHORT_SHA}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
