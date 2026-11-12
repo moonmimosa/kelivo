@@ -6,6 +6,7 @@ import '../../request_history_context.dart';
 import '../../request_image_context.dart';
 import '../../../custom_request_merger.dart';
 import '../../../../models/provider_oauth.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -275,6 +276,20 @@ Stream<StreamChunk> sendOpenAIStream(
   // Custom body keys go last so they win over the reasoning dialect.
   validateNativeCompactionOverrides(body, extraBodyCfg);
   CustomRequestMerger.applyBody(body, extraBodyCfg);
+  if (config.useResponseApi != true &&
+      isSereinK3Model(config, upstreamModelId)) {
+    // The Serein K3 wire rejects these sampling fields, including values from
+    // provider or assistant custom-body settings.
+    for (final key in const [
+      'temperature',
+      'top_p',
+      'n',
+      'presence_penalty',
+      'frequency_penalty',
+    ]) {
+      body.remove(key);
+    }
+  }
   applyServiceTier(body, config, serviceTier);
   if (promptCacheKey != null) {
     body.putIfAbsent('prompt_cache_key', () => promptCacheKey);

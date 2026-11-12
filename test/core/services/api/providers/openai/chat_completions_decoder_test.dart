@@ -72,6 +72,24 @@ void main() {
     expect(decoder.assistantContent, 'Hello');
   });
 
+  test('keeps complete-message reasoning when content is null', () {
+    final decoder = ChatCompletionsStreamDecoder();
+    final result = decoder.accept(
+      _event(
+        _choice(
+          message: <String, dynamic>{
+            'content': null,
+            'reasoning_content': '完整思考',
+          },
+        ),
+      ),
+    );
+
+    expect(result.chunks.whereType<ReasoningDelta>().single.text, '完整思考');
+    expect(result.chunks.whereType<TextDelta>(), isEmpty);
+    expect(decoder.assistantContent, isEmpty);
+  });
+
   test(
     'merges message.content with delta and tracks usage without Usage events',
     () {

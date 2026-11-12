@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
+
+import '../../../core/services/nianlun/nianlun_client.dart';
 import '../../../core/database/chat_database_repository.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
@@ -1311,7 +1314,7 @@ class ChatController extends ChangeNotifier {
     if (_collapsedCache != null) return _collapsedCache!;
     // The window owns hydrated selected bodies. Revision headers supply the
     // version picker only and must never be rendered as empty message bodies.
-    _collapsedCache = collapseVersions(_messages);
+    _collapsedCache = collapseVersions(_messagesWithVisibleGroups());
     _collapsedIdToIndex = <String, int>{};
     for (int i = 0; i < _collapsedCache!.length; i++) {
       _collapsedIdToIndex![_collapsedCache![i].id] = i;
@@ -1324,6 +1327,7 @@ class ChatController extends ChangeNotifier {
     if (cached != null) return cached;
     final result = <ChatMessage>[];
     for (final selected in _messages) {
+      if (NianlunClient.isInternalWakePrompt(selected)) continue;
       final group = selected.groupId ?? selected.id;
       final headers = _versionHeaders[group];
       if (headers == null || headers.isEmpty) {
@@ -1385,6 +1389,7 @@ class ChatController extends ChangeNotifier {
     final limit = raw.clamp(0, _messages.length);
     var count = 0;
     for (var index = 0; index < limit; index++) {
+      if (NianlunClient.isInternalWakePrompt(_messages[index])) continue;
       if (seen.add(_messages[index].groupId ?? _messages[index].id)) count++;
     }
     return count - 1;

@@ -22,8 +22,8 @@ void main() {
   });
 
   /// Builds a current-schema database, then mutates it the way a hypothetical
-  /// future build would: extra columns, an extra table, an extra index, and a
-  /// bumped user_version.
+  /// future build would: extra columns, a generated-column dependency, an
+  /// extra table, an extra index, and a bumped user_version.
   Future<File> createFutureDatabase() async {
     final file = File('${workspace.path}/${AppDatabase.databaseFileName}');
     final database = AppDatabase(NativeDatabase(file));
@@ -46,11 +46,28 @@ void main() {
     final raw = sqlite.sqlite3.open(file.path);
     raw.execute('ALTER TABLE conversation_rows ADD COLUMN future_flag TEXT;');
     raw.execute('ALTER TABLE conversation_rows ADD COLUMN future_note TEXT;');
+    // SQLite cannot drop a column used by another generated column. This
+    // forces normalizeForwardCompatibleSnapshot through its rebuild path.
+    raw.execute(
+      'ALTER TABLE conversation_rows ADD COLUMN future_derived TEXT '
+      'GENERATED ALWAYS AS (future_note) VIRTUAL;',
+    );
     raw.execute(
       "UPDATE conversation_rows SET future_flag = 'x', future_note = 'y';",
     );
     raw.execute(
       'CREATE INDEX idx_future_flag ON conversation_rows (future_flag);',
+    );
+    raw.execute('''
+      CREATE TRIGGER future_column_trigger
+      AFTER UPDATE ON conversation_rows
+      BEGIN
+        SELECT NEW.future_note;
+      END;
+    ''');
+    raw.execute(
+      'CREATE VIEW future_column_view AS '
+      'SELECT future_note FROM conversation_rows;',
     );
     raw.execute(
       'CREATE TABLE future_rows ('
@@ -153,6 +170,19 @@ void main() {
       AppDatabase.currentSchemaVersion + 1,
     );
 
+    final probe = sqlite.sqlite3.open(file.path);
+    try {
+      expect(
+        () => probe.execute(
+          'ALTER TABLE conversation_rows DROP COLUMN future_note;',
+        ),
+        throwsA(isA<sqlite.SqliteException>()),
+        reason: 'the generated column must force the rebuild path',
+      );
+    } finally {
+      probe.close();
+    }
+
     await ChatDatabaseRepository.normalizeForwardCompatibleSnapshot(file);
 
     expect(
@@ -169,6 +199,12 @@ void main() {
       expect(columns, isNot(contains('future_flag')));
       expect(columns, isNot(contains('future_note')));
       expect(
+        raw
+            .select('PRAGMA table_xinfo("conversation_rows");')
+            .map((row) => row['name']),
+        isNot(contains('future_derived')),
+      );
+      expect(
         columns,
         ChatDatabaseRepository.currentSchemaColumns['conversation_rows'],
         reason: 'exactly this build\'s columns, in order',
@@ -179,6 +215,16 @@ void main() {
           .map((row) => row['name'])
           .toList();
       expect(tables, isNot(contains('future_rows')));
+      expect(
+        raw.select("SELECT name FROM sqlite_master WHERE type = 'trigger';"),
+        isEmpty,
+        reason: 'source-build triggers must not survive normalization',
+      );
+      expect(
+        raw.select("SELECT name FROM sqlite_master WHERE type = 'view';"),
+        isEmpty,
+        reason: 'source-build views must not survive normalization',
+      );
 
       // The rows themselves survive: only the parts this build cannot
       // understand are dropped.

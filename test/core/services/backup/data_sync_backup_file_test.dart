@@ -766,7 +766,7 @@ void main() {
         final preserved = root
             .listSync(recursive: true, followLinks: false)
             .whereType<File>()
-            .where((f) => f.path.endsWith('/previous/preserved.txt'))
+            .where((f) => f.path.endsWith(p.join('previous', 'preserved.txt')))
             .single;
         expect(await preserved.readAsString(), 'previous data evidence');
         expect(
@@ -3291,6 +3291,104 @@ void main() {
         isNot(contains('stickers/future.bin')),
       );
       expect(await Directory('${root.path}/stickers').exists(), isFalse);
+    });
+
+    test('accepts a fully scoped v3 backup from newer Kelivo', () async {
+      final categories = <String>[
+        'chats',
+        'files',
+        'assistants',
+        'providers',
+        'mcp',
+        'environmentVariables',
+        'skills',
+        'worldBooks',
+        'memories',
+        'quickPhrases',
+        'instructions',
+        'workspaces',
+        'searchServices',
+        'speechServices',
+        'settings',
+      ];
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'fully_scoped_v3',
+        settings: const {},
+        includeFiles: true,
+        formatVersionOverride: 3,
+        minimumReadableFormatOverride: 3,
+        extraManifestFields: {
+          'scope': {for (final category in categories) category: true},
+        },
+      );
+      expect(await DataSync.inspectBackupCompatibility(zipFile), isNotNull);
+
+      await DataSync(
+        businessRepository: businessRepository,
+        chatService: ChatService(),
+      ).restoreFromLocalFile(zipFile, const WebDavConfig(scope: BackupScope()));
+
+      final runDirectory = await _singleRestoreRunDirectory(root);
+      final candidateManifest =
+          jsonDecode(
+                await File(
+                  '${runDirectory.path}/candidate/manifest.json',
+                ).readAsString(),
+              )
+              as Map<String, dynamic>;
+      expect(candidateManifest['formatVersion'], 3);
+      expect(candidateManifest.keys, isNot(contains('scope')));
+    });
+
+    test('refuses a v3 backup with an incomplete scope declaration', () async {
+      final categories = <String>[
+        'chats',
+        'files',
+        'assistants',
+        'providers',
+        'mcp',
+        'environmentVariables',
+        'skills',
+        'worldBooks',
+        'memories',
+        'quickPhrases',
+        'instructions',
+        'workspaces',
+        'searchServices',
+        'speechServices',
+        'settings',
+      ];
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'partially_scoped_v3',
+        settings: const {},
+        formatVersionOverride: 3,
+        minimumReadableFormatOverride: 3,
+        extraManifestFields: {
+          'scope': {
+            for (final category in categories.where((c) => c != 'memories'))
+              category: true,
+          },
+        },
+      );
+
+      await expectLater(
+        DataSync(
+          businessRepository: businessRepository,
+          chatService: ChatService(),
+        ).restoreFromLocalFile(
+          zipFile,
+          const WebDavConfig(scope: BackupScope()),
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            'manifest_scope',
+          ),
+        ),
+      );
     });
 
     test('refuses a newer archive format that vouches for nothing', () async {
@@ -6187,7 +6285,7 @@ void main() {
       expect(before.parts.whereType<ImagePart>().single.uri, uri);
 
       final resolved = SandboxPathResolver.fix(uri);
-      expect(resolved, '${rootB.path}/upload/pic.png');
+      expect(resolved, p.join(rootB.path, 'upload', 'pic.png'));
       expect(File(resolved).existsSync(), isTrue);
 
       // Path-migration pass with the production rewriteUri must leave URI intact.

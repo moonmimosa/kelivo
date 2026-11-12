@@ -1,4 +1,5 @@
 import 'package:Kelivo/features/chat/utils/prompt_injection_selection.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -185,12 +186,9 @@ class ChatInputSection extends StatelessWidget {
             budgetTokens: selectedReasoning.budgetTokens,
           );
 
-    // Enforce model capabilities: disable MCP selection if model doesn't
-    // support tools. Skip this when model or MCP selection can be scoped to
-    // a conversation: these writes would affect the shared assistant defaults.
-    if (!chatModelIsConversationOverride && a?.allowConversationMcp != true) {
-      _enforceModelCapabilities(context, settings, ap, a, pk, mid);
-    }
+    // Do not clear assistant-level MCP bindings based on a conversation's
+    // selected model. Older windows can use another model; mutating the shared
+    // assistant here silently unbinds MCP from every window using it.
 
     final isDesktop = _isDesktopPlatform(context);
     final hasWorldBooks =
@@ -375,27 +373,6 @@ class ChatInputSection extends StatelessWidget {
     return platform == TargetPlatform.macOS ||
         platform == TargetPlatform.windows ||
         platform == TargetPlatform.linux;
-  }
-
-  void _enforceModelCapabilities(
-    BuildContext context,
-    SettingsProvider settings,
-    AssistantProvider ap,
-    Assistant? a,
-    String? pk,
-    String? mid,
-  ) {
-    if (pk == null || mid == null) return;
-
-    final supportsTools = isToolModel(pk, mid);
-    if (!supportsTools && (a?.mcpServerIds.isNotEmpty ?? false)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final aa = ap.currentAssistant;
-        if (aa != null && aa.mcpServerIds.isNotEmpty) {
-          ap.updateAssistant(aa.copyWith(mcpServerIds: const <String>[]));
-        }
-      });
-    }
   }
 
   ReasoningRequest _selectedReasoning(

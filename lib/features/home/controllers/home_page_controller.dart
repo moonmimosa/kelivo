@@ -4,25 +4,33 @@ import '../../chat/widgets/context_compression_status.dart';
 import '../../../core/models/compression_config.dart';
 import '../../chat/controllers/quote_editing_controller.dart';
 import '../../side_panel/desktop_side_panel_controller.dart';
+
 import 'package:Kelivo/features/intelligent_ui/host/ui_search_navigation.dart';
+
 import '../../intelligent_ui/host/ui_copy_actions.dart';
 import '../../intelligent_ui/host/ui_draft_staging.dart';
 import '../../intelligent_ui/host/ui_draft_request.dart';
 import '../../intelligent_ui/widgets/genui_draft_dialog.dart';
 import '../../intelligent_ui/host/ui_context_submission.dart';
+
 import 'package:Kelivo/shared/text_input/message_editing_controller.dart';
+
 import '../../../core/database/composer_draft_store.dart';
 import '../../../core/models/composer_draft.dart';
 import '../../../core/services/app_exit_flush.dart';
 import '../../scheduled_tasks/scheduled_task_preparation_binding.dart';
 import '../../../core/services/scheduled_tasks_service.dart';
 import '../../scheduled_tasks/scheduled_task_runner.dart';
+import 'nianlun_binding.dart';
+
 import 'dart:async';
+
 import 'package:flutter/foundation.dart' show listEquals, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+
 import '../../../core/database/chat_database_repository.dart';
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
@@ -174,6 +182,7 @@ class HomePageController extends ChangeNotifier {
   late scroll_ctrl.ChatScrollController _scrollCtrl;
 
   McpProvider? _mcpProvider;
+  NianlunBinding? _nianlun;
   StreamSubscription<ChatAction>? _chatActionSub;
   StreamSubscription<String>? _notificationTapSub;
 
@@ -1002,6 +1011,7 @@ class HomePageController extends ChangeNotifier {
       _resetMessageJump();
       _restoreMessageUiState();
       _scrollCtrl.positionAtBottomOnNextLayout();
+      _nianlun?.onConversationSwitched();
     };
     _viewModel.onStreamFinished = (conversationId) {
       // Trigger UI update when streaming finishes
@@ -1395,6 +1405,16 @@ class HomePageController extends ChangeNotifier {
       }
       await _activateComposerDraft();
       _chatInitialized = true;
+      _nianlun?.dispose();
+      if (_context.mounted) {
+        _nianlun = NianlunBinding(
+          context: _context,
+          chat: _chatService,
+          chatController: _chatController,
+          messageBuilderService: _messageBuilderService,
+          viewModel: _viewModel,
+        )..start();
+      }
       if (ScheduledTasksService.supported) {
         if (ScheduledTasksService.instance.isIOS) {
           final binding = _scheduledPreparation =
@@ -2781,6 +2801,7 @@ class HomePageController extends ChangeNotifier {
 
   Future<void> _handleAssistantMessageFinished(ChatMessage message) async {
     if (!_context.mounted || message.role != 'assistant') return;
+    unawaited(_nianlun?.onAssistantMessageFinished(message) ?? Future.value());
     final settings = _context.read<SettingsProvider>();
     if (settings.ttsAutoPlayAssistantReplies) {
       await _speakAssistantMessage(message, autoPlay: true);
@@ -4034,6 +4055,7 @@ class HomePageController extends ChangeNotifier {
     }
     if (state == AppLifecycleState.resumed) {
       ScreenWakelock.reassert();
+      _nianlun?.onAppResumed();
     }
   }
 
@@ -4226,6 +4248,8 @@ class HomePageController extends ChangeNotifier {
     if (background.visibleConversation == _visibleBackgroundConversation) {
       background.visibleConversation = null;
     }
+    _nianlun?.dispose();
+    _nianlun = null;
     _viewModel.resetFileProcessingIndicator();
     _viewModel.onBackgroundTaskError = null;
     _ocrService.onError = null;

@@ -9,6 +9,7 @@ import 'package:Kelivo/core/providers/mcp_provider.dart';
 import 'package:Kelivo/core/providers/quick_phrase_provider.dart';
 import 'package:Kelivo/core/providers/settings_provider.dart';
 import 'package:Kelivo/core/providers/world_book_provider.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
 import 'package:Kelivo/desktop/tools_popover.dart';
 import 'package:Kelivo/features/home/services/local_tools_service.dart';
 import 'package:Kelivo/features/home/widgets/chat_input_bar.dart';
@@ -85,6 +86,7 @@ void main() {
           Provider<BusinessPreferences>.value(value: preferences),
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider.value(value: assistants),
+          ChangeNotifierProvider(create: (_) => ChatService()),
           ChangeNotifierProvider(create: (_) => AsrProvider()),
           ChangeNotifierProvider(
             create: (_) => WorldBookProvider(preferences: preferences),
@@ -371,7 +373,7 @@ void main() {
     expect(bar().reasoningActive, isFalse);
   });
 
-  testWidgets('the assistant\'s own model still disables what it cannot do', (
+  testWidgets('an unsupported model does not erase the assistant MCP binding', (
     tester,
   ) async {
     final assistants = await loadAssistantWithMcp(tester);
@@ -382,7 +384,7 @@ void main() {
       isConversationOverride: false,
     );
 
-    expect(assistants.currentAssistant?.mcpServerIds, isEmpty);
+    expect(assistants.currentAssistant?.mcpServerIds, ['server-1']);
   });
 
   testWidgets(

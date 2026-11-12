@@ -1859,8 +1859,8 @@ class MessageBuilderService {
     required Assistant assistant,
     required SettingsProvider settings,
   }) async {
-    if (!assistant.enableMemory) return '';
     if (settings.legacyMemoryMode) return _legacyMemoryBlock(assistant.id);
+    if (!assistant.enableMemory) return '';
     final snapshot = await currentMemorySnapshot(
       assistant: assistant,
       lang: settings.resolvedMemoryPromptLang,

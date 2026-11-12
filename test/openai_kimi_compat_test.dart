@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:Kelivo/core/providers/settings_provider.dart';
 import 'package:Kelivo/core/services/api/chat_api_service.dart';
+
 import 'support/collect_generation.dart';
 import 'support/legacy_reasoning.dart';
 
@@ -268,6 +269,37 @@ void main() {
         'reasoning_content': '第一轮完整思考\n保留原文',
       });
     });
+
+    test(
+      'Serein K3 alias uses its reasoning and sampling request contract',
+      () async {
+        final body = await _captureMoonshotBody(
+          modelId: 'k3',
+          providerId: 'Serein',
+          thinkingBudget: 64000,
+          extraBody: const {
+            'temperature': 0.8,
+            'top_p': 0.9,
+            'n': 2,
+            'presence_penalty': 0.1,
+            'frequency_penalty': 0.2,
+          },
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
+        );
+        expect(body['reasoning_effort'], 'high');
+        for (final key in [
+          'temperature',
+          'top_p',
+          'n',
+          'presence_penalty',
+          'frequency_penalty',
+        ]) {
+          expect(body.containsKey(key), isFalse, reason: key);
+        }
+      },
+    );
 
     test('kimi-k3 filters remote images from every input path', () async {
       final dir = await Directory.systemTemp.createTemp(

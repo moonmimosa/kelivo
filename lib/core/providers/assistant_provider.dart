@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
+
 import '../../utils/sandbox_path_resolver.dart';
 import '../database/business_preferences.dart';
 import '../models/assistant.dart';
@@ -384,6 +385,9 @@ class AssistantProvider extends ChangeNotifier {
           name: _buildCopyName(source, l10n),
           avatar: avatarCopy,
           background: backgroundCopy,
+          // A 年轮 window belongs to one assistant; duplicates bind their own.
+          nianlunEnabled: false,
+          nianlunWindowId: '',
           mcpServerIds: options.mcp
               ? List<String>.of(source.mcpServerIds)
               : const [],

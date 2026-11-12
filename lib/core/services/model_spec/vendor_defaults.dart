@@ -154,6 +154,16 @@ class VendorDefaults {
       dialect = ReasoningDialect.kimiThinking;
     }
 
+    // Serein's resumed.wang endpoint exposes Kimi Code K3 through the short
+    // `k3` alias. Match that provider in the model-spec pipeline so its
+    // request uses Kimi K3's reasoning_effort dialect, while unrelated `k3` models keep
+    // their normal OpenAI reasoning-effort behavior.
+    if (isSereinK3Model(cfg, modelId)) {
+      dialect = ReasoningDialect.openaiReasoningEffort;
+      replay = ReasoningReplayPolicy.all;
+      replayField = ReasoningReplayField.reasoningContent;
+    }
+
     return VendorDefaults(
       dialect: dialect,
       levels: levels,
@@ -192,6 +202,18 @@ class VendorDefaults {
     replay,
     replayField,
   );
+}
+
+/// Serein exposes the Kimi Code K3 API through the short K3 model aliases.
+bool isSereinK3Model(ProviderConfig cfg, String? modelId) {
+  final host = _hostOf(cfg);
+  final isSerein =
+      cfg.id.trim().toLowerCase().contains('serein') ||
+      cfg.name.trim().toLowerCase().contains('serein') ||
+      host == 'resumed.wang' ||
+      host.endsWith('.resumed.wang');
+  final alias = (modelId ?? '').trim().toLowerCase();
+  return isSerein && RegExp(r'^k3(?:-256k)?$').hasMatch(alias);
 }
 
 String _hostOf(ProviderConfig cfg) {

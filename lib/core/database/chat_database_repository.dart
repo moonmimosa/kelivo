@@ -322,10 +322,10 @@ class ChatDatabaseRepository {
   /// Strips a database written by a NEWER build down to the shape this build
   /// knows, so a forward-compatible backup can still be restored.
   ///
-  /// Drops tables this build does not know, drops unknown columns from tables
-  /// it does know, and stamps [AppDatabase.currentSchemaVersion]. Afterwards
-  /// the ordinary validators see an exact current-schema database, which is
-  /// what keeps them single-version.
+  /// Drops tables and columns this build does not know, then stamps
+  /// [AppDatabase.currentSchemaVersion]. If SQLite cannot drop a newer column
+  /// because of source-only constraints, indexes, or other schema objects,
+  /// this rebuilds a clean current-schema copy and transfers known columns.
   ///
   /// This only reconciles *structure*. It cannot detect a newer build changing
   /// what an existing column MEANS — that is what the manifest's
@@ -336,6 +336,25 @@ class ChatDatabaseRepository {
   /// data dropped here is still present if the same backup is later restored
   /// into a build that understands it.
   static Future<void> normalizeForwardCompatibleSnapshot(File file) async {
+    try {
+      await _normalizeForwardCompatibleSnapshotInPlace(file);
+      await normalizeSnapshotJournal(file);
+      return;
+    } on sqlite.SqliteException catch (inPlaceError) {
+      try {
+        await _rebuildForwardCompatibleSnapshot(file);
+      } catch (rebuildError) {
+        throw StateError(
+          'database_forward_compat_failed:${inPlaceError.message};'
+          ' rebuild_failed:$rebuildError',
+        );
+      }
+    }
+  }
+
+  static Future<void> _normalizeForwardCompatibleSnapshotInPlace(
+    File file,
+  ) async {
     final database = sqlite.sqlite3.open(file.absolute.path);
     try {
       // Foreign keys stay off for the rewrite: dropping an unknown table can
@@ -343,6 +362,30 @@ class ChatDatabaseRepository {
       database.execute('PRAGMA foreign_keys = OFF;');
       database.execute('BEGIN IMMEDIATE;');
       try {
+        // These objects belong to the source build's schema. They may refer
+        // to columns or tables this build is about to remove, causing SQLite
+        // to reject ALTER TABLE ... DROP COLUMN despite the payload being
+        // forward compatible. The restore path recreates derived indexes and
+        // triggers from this build when needed.
+        final triggers = database
+            .select("SELECT name FROM sqlite_master WHERE type = 'trigger';")
+            .map((row) => row['name'])
+            .whereType<String>()
+            .toList(growable: false);
+        for (final trigger in triggers) {
+          final quotedName = '"${trigger.replaceAll('"', '""')}"';
+          database.execute('DROP TRIGGER IF EXISTS $quotedName;');
+        }
+        final views = database
+            .select("SELECT name FROM sqlite_master WHERE type = 'view';")
+            .map((row) => row['name'])
+            .whereType<String>()
+            .toList(growable: false);
+        for (final view in views) {
+          final quotedName = '"${view.replaceAll('"', '""')}"';
+          database.execute('DROP VIEW IF EXISTS $quotedName;');
+        }
+
         for (final sql in MessageTimelineIndex.discardStatements) {
           database.execute(sql);
         }
@@ -422,12 +465,139 @@ class ChatDatabaseRepository {
         rethrow;
       }
       database.execute('PRAGMA foreign_keys = ON;');
+      if (database.select('PRAGMA foreign_key_check;').isNotEmpty) {
+        throw StateError('database_forward_compat_foreign_keys');
+      }
     } on sqlite.SqliteException {
       throw StateError('database_forward_compat_failed');
     } finally {
       database.close();
     }
-    await normalizeSnapshotJournal(file);
+  }
+
+  /// Recreates a forward-compatible snapshot with this build's schema when a
+  /// source-only constraint prevents SQLite from dropping a newer column.
+  /// The archive copy is only read; the extracted source is kept until the new
+  /// database has been copied and validated successfully.
+  static Future<void> _rebuildForwardCompatibleSnapshot(File file) async {
+    final suffix = Uuid().v4();
+    final rebuiltFile = File('${file.path}.compatible-$suffix');
+    final sourceBackup = File('${file.path}.source-$suffix');
+    var sourceMoved = false;
+    try {
+      final rebuiltDatabase = AppDatabase.open(file: rebuiltFile);
+      try {
+        await rebuiltDatabase.customSelect('SELECT 1;').getSingle();
+      } finally {
+        await rebuiltDatabase.close();
+      }
+      await normalizeSnapshotJournal(rebuiltFile);
+
+      final database = sqlite.sqlite3.open(rebuiltFile.absolute.path);
+      var sourceAttached = false;
+      var transactionOpen = false;
+      try {
+        database.execute('PRAGMA foreign_keys = OFF;');
+        database.execute('ATTACH DATABASE ? AS source;', [file.absolute.path]);
+        sourceAttached = true;
+        final sourceTables = database
+            .select(
+              "SELECT name FROM source.sqlite_master WHERE type = 'table';",
+            )
+            .map((row) => row['name'])
+            .whereType<String>()
+            .toSet();
+        database.execute('BEGIN IMMEDIATE;');
+        transactionOpen = true;
+        for (final entry in currentSchemaColumns.entries) {
+          if (!sourceTables.contains(entry.key)) {
+            throw StateError(
+              'database_forward_compat_missing_table:${entry.key}',
+            );
+          }
+          final sourceColumns = database
+              .select('PRAGMA source.table_info("${entry.key}");')
+              .map((row) => row['name'])
+              .whereType<String>()
+              .toSet();
+          final missingColumns = entry.value
+              .where((column) => !sourceColumns.contains(column))
+              .toList(growable: false);
+          if (missingColumns.isNotEmpty) {
+            throw StateError(
+              'database_forward_compat_missing_columns:${entry.key}:'
+              '${missingColumns.join(',')}',
+            );
+          }
+          final columns = entry.value.map((column) => '"$column"').join(', ');
+          database.execute(
+            'INSERT INTO main."${entry.key}" ($columns) '
+            'SELECT $columns FROM source."${entry.key}";',
+          );
+        }
+        database.execute('COMMIT;');
+        transactionOpen = false;
+        if (database.select('PRAGMA main.foreign_key_check;').isNotEmpty) {
+          throw StateError('database_forward_compat_foreign_keys');
+        }
+      } catch (_) {
+        if (transactionOpen) {
+          try {
+            database.execute('ROLLBACK;');
+          } catch (_) {}
+        }
+        rethrow;
+      } finally {
+        if (sourceAttached) {
+          try {
+            database.execute('DETACH DATABASE source;');
+          } catch (_) {}
+        }
+        database.close();
+      }
+
+      await normalizeSnapshotJournal(rebuiltFile);
+      final validation = sqlite.sqlite3.open(
+        rebuiltFile.absolute.path,
+        mode: sqlite.OpenMode.readOnly,
+      );
+      try {
+        _validateRawSnapshot(validation);
+      } finally {
+        validation.close();
+      }
+
+      await file.rename(sourceBackup.path);
+      sourceMoved = true;
+      try {
+        await rebuiltFile.rename(file.path);
+        await _deleteDatabaseSidecars(file);
+        final installed = sqlite.sqlite3.open(
+          file.absolute.path,
+          mode: sqlite.OpenMode.readOnly,
+        );
+        try {
+          _validateRawSnapshot(installed);
+        } finally {
+          installed.close();
+        }
+        await sourceBackup.delete();
+        sourceMoved = false;
+      } catch (_) {
+        if (await file.exists()) await file.delete();
+        await sourceBackup.rename(file.path);
+        sourceMoved = false;
+        rethrow;
+      }
+    } finally {
+      if (sourceMoved && await sourceBackup.exists()) {
+        if (await file.exists()) await file.delete();
+        await sourceBackup.rename(file.path);
+      }
+      if (await rebuiltFile.exists()) await rebuiltFile.delete();
+      await _deleteDatabaseSidecars(rebuiltFile);
+      await _deleteDatabaseSidecars(sourceBackup);
+    }
   }
 
   /// Suffix of the copy kept while an installed database is being upgraded.

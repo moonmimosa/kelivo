@@ -161,6 +161,16 @@ void main() {
       expect(defaults.protocolDefault, ReasoningDialect.anthropicBudget);
     });
 
+    test('Serein K3 alias uses Kimi K3 reasoning and history replay', () {
+      final defaults = VendorDefaults.forProvider(
+        _cfg(id: 'Serein', name: 'Serein', baseUrl: 'https://resumed.wang/v1'),
+        modelId: 'k3',
+      );
+      expect(defaults.dialect, ReasoningDialect.openaiReasoningEffort);
+      expect(defaults.replay, ReasoningReplayPolicy.all);
+      expect(defaults.replayField, ReasoningReplayField.reasoningContent);
+    });
+
     test('Kimi Anthropic protocol uses a budget ladder', () {
       final byHost = VendorDefaults.forProvider(
         _cfg(
