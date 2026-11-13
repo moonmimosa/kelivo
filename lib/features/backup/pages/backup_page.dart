@@ -1450,7 +1450,6 @@ class _BackupPageState extends State<BackupPage> {
           Future<bool> save() => NativeFileSave.saveFileFromPath(
             sourcePath: exported.path,
             fileName: exported.uri.pathSegments.last,
-            requireOutsideAppContainer: Platform.isIOS,
             dialogTitle: l10n.backupPageChooseBackupFolder,
           );
           var saved = false;
