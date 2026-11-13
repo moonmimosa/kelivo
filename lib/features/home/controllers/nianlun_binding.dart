@@ -64,19 +64,24 @@ class NianlunBinding {
 
   void start() {
     _timer?.cancel();
-    _timer = Timer.periodic(pollInterval, (_) => unawaited(poll()));
-    unawaited(syncCurrentConversation());
-    unawaited(poll());
+    _timer = Timer.periodic(pollInterval, (_) => unawaited(_syncThenPoll()));
+    unawaited(_syncThenPoll());
   }
 
   void onAppResumed() {
-    unawaited(syncCurrentConversation());
-    unawaited(poll(force: true));
+    unawaited(_syncThenPoll(force: true));
   }
 
   void onConversationSwitched() {
-    unawaited(syncCurrentConversation());
-    unawaited(poll());
+    unawaited(_syncThenPoll());
+  }
+
+  /// A wake request must see the same conversation snapshot as the current
+  /// Kelivo window. Keep the initial sync and request claim in one sequence so
+  /// a background poll cannot race ahead of the latest message upload.
+  Future<void> _syncThenPoll({bool force = false}) async {
+    await syncCurrentConversation();
+    await poll(force: force);
   }
 
   void dispose() {
@@ -86,7 +91,13 @@ class NianlunBinding {
   }
 
   Future<void> syncCurrentConversation() async {
-    if (_disposed || _syncing || !context.mounted) return;
+    if (_disposed || !context.mounted) return;
+    // A response completion can be syncing the same window while the periodic
+    // poll fires. Wait for that upload instead of polling an older snapshot.
+    while (_syncing && !_disposed) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    if (_disposed || !context.mounted) return;
     final conversation = chatController.currentConversation;
     if (conversation == null) return;
     final assistant = _assistantFor(conversation);
@@ -372,7 +383,10 @@ class NianlunBinding {
       final result = await runtime.sendScheduledMessage(
         input: ChatInputData(
           text:
-              '${NianlunClient.internalWakePromptPrefix}这是你自己醒来的一轮。请按你平时的方式使用记忆、工具和人格处理下面的房间内容；如果不想打扰她，可以保持沉默。\n\n${request.prompt}',
+              '${NianlunClient.internalWakePromptPrefix}'
+              '${_wakeClockLine()}\n'
+              '这是你自己醒来的一轮。请按你平时的方式使用记忆、工具和人格处理下面的房间内容；如果不想打扰她，可以保持沉默。\n\n'
+              '${request.prompt}',
         ),
         conversation: target,
         assistant: assistant,
@@ -399,6 +413,17 @@ class NianlunBinding {
         }
       }
     }
+  }
+
+  String _wakeClockLine() {
+    final now = DateTime.now();
+    final date =
+        '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+    final time =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    return '现在是 $date $time（${now.timeZoneName}，设备本地时间）。';
   }
 
   List<String> _toolNames(ChatMessage message) {
