@@ -2,7 +2,7 @@ name: Nianlun iOS build (unsigned IPA)
 
 # 年轮分支的 iOS 构建：推到 nianlun 分支自动跑，也可以手动触发。
 # 步骤照抄 build-stable-44.yml 的 iOS 任务（Flutter stable 3.44.9），另外：
-# - 固定使用 bundle id psyche.kelivo.nianlun、显示名「Kelivo年轮」，更新既有年轮版安装并保留本机数据；
+# - 固定使用 bundle id psyche.kelivo.nianlun、显示名「wynut」，更新既有年轮版安装并保留本机数据；
 #   与 bundle id 为 psyche.kelivo 的官方版仍是两个独立 App；侧载更新还需沿用原签名团队；
 # - fallback key 写空字符串，保证发布到 Release 的包里不带任何密钥；
 # - 产物：Actions 里的 iOS-IPA-nianlun，以及一个 prerelease（tag nianlun-ios-<序号>），用 Sideloadly 安装。
@@ -66,7 +66,7 @@ jobs:
             sed -i '' 's/group\.psyche\.kelivo/group.psyche.kelivo.nianlun/g' "$f"
             echo "app group -> $f"
           done
-          /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Kelivo年轮' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName wynut' ios/Runner/Info.plist
           grep -n 'PRODUCT_BUNDLE_IDENTIFIER' ios/Runner.xcodeproj/project.pbxproj | sort -u -k3
 
       - name: 🧰 缓存 iSH 沙箱产物
@@ -121,7 +121,7 @@ jobs:
           name: 年轮测试包 ${{ env.VERSION }}
           prerelease: true
           body: |
-            未签名的 iOS 测试包，用 Sideloadly 安装。沿用 Kelivo年轮的应用标识，可覆盖更新并保留该 App 的本机聊天数据；请使用之前安装年轮包时相同的签名团队/Apple ID。
+            未签名的 iOS 测试包，用 Sideloadly 安装。应用显示名为 wynut，沿用年轮版的应用标识，可覆盖更新并保留该 App 的本机聊天数据；请使用之前安装年轮包时相同的签名团队/Apple ID。
             它仍与应用标识为 psyche.kelivo 的官方 Kelivo 分开安装。
             commit ${{ github.sha }}
           files: Kelivo_ios_*.ipa
