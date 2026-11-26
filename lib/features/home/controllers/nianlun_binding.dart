@@ -54,6 +54,8 @@ class NianlunBinding {
   Timer? _timer;
   bool _disposed = false;
   bool _polling = false;
+  final List<({Future<void> Function() operation, Completer<void> completer})>
+  _syncQueue = [];
   bool _syncing = false;
   DateTime? _lastPollAt;
   final Map<String, _PendingWake> _pendingWakes = <String, _PendingWake>{};
@@ -90,13 +92,35 @@ class NianlunBinding {
     _timer = null;
   }
 
-  Future<void> syncCurrentConversation() async {
-    if (_disposed || !context.mounted) return;
-    // A response completion can be syncing the same window while the periodic
-    // poll fires. Wait for that upload instead of polling an older snapshot.
-    while (_syncing && !_disposed) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+  Future<void> _enqueueSync(Future<void> Function() operation) {
+    final completer = Completer<void>();
+    _syncQueue.add((operation: operation, completer: completer));
+    if (!_syncing) unawaited(_drainSyncQueue());
+    return completer.future;
+  }
+
+  Future<void> _drainSyncQueue() async {
+    if (_syncing) return;
+    _syncing = true;
+    try {
+      while (_syncQueue.isNotEmpty) {
+        final task = _syncQueue.removeAt(0);
+        try {
+          await task.operation();
+          task.completer.complete();
+        } catch (error, stackTrace) {
+          debugPrint('[nianlun] queued sync failed: $error\n$stackTrace');
+          task.completer.complete();
+        }
+      }
+    } finally {
+      _syncing = false;
+      // A task may have been queued after the loop observed an empty queue.
+      if (_syncQueue.isNotEmpty) unawaited(_drainSyncQueue());
     }
+  }
+
+  Future<void> syncCurrentConversation() => _enqueueSync(() async {
     if (_disposed || !context.mounted) return;
     final conversation = chatController.currentConversation;
     if (conversation == null) return;
@@ -109,7 +133,6 @@ class NianlunBinding {
     );
     if (!client.isConfigured) return;
 
-    _syncing = true;
     try {
       final modelId = assistant.chatModelId;
       final history = await chat.loadSelectedContextMessages(
@@ -131,18 +154,17 @@ class NianlunBinding {
       await client.syncWindow(_windowIdFor(assistant), payload);
     } catch (e) {
       debugPrint('[nianlun] current-window sync failed: $e');
-    } finally {
-      _syncing = false;
     }
-  }
+  });
 
   // ---------------------------------------------------------------------------
   // 同步窗口
   // ---------------------------------------------------------------------------
 
-  Future<void> onAssistantMessageFinished(ChatMessage message) async {
-    if (_disposed || _syncing || !context.mounted) return;
-    if (message.role != 'assistant') return;
+  Future<void> onAssistantMessageFinished(
+    ChatMessage message,
+  ) => _enqueueSync(() async {
+    if (_disposed || !context.mounted || message.role != 'assistant') return;
     final conversation = chat.getConversation(message.conversationId);
     if (conversation == null) return;
     final assistant = _assistantFor(conversation);
@@ -159,7 +181,6 @@ class NianlunBinding {
     final systemPrompt = _renderSystemPrompt(assistant, conversation, modelId);
     final windowId = pendingWake?.windowId ?? _windowIdFor(assistant);
 
-    _syncing = true;
     try {
       final history = await chat.loadSelectedContextMessages(
         conversation.id,
@@ -208,10 +229,8 @@ class NianlunBinding {
           debugPrint('[nianlun] wake completion failed: $completeError');
         }
       }
-    } finally {
-      _syncing = false;
     }
-  }
+  });
 
   String _renderSystemPrompt(
     Assistant assistant,

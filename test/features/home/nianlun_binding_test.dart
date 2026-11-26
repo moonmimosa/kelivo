@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -38,6 +39,7 @@ class _FakeServer {
   final requests = <http.Request>[];
   List<Map<String, Object?>> pending = [];
   final acked = <int>[];
+  Completer<void>? nextPutGate;
 
   MockClient get client => MockClient((request) async {
     requests.add(request);
@@ -56,6 +58,9 @@ class _FakeServer {
       return http.Response(jsonEncode({'acked': ids.length}), 200);
     }
     if (request.method == 'PUT' && path.startsWith('/nl/api/client/windows/')) {
+      final gate = nextPutGate;
+      nextPutGate = null;
+      if (gate != null) await gate.future;
       return http.Response(jsonEncode({'status': 'saved'}), 200);
     }
     return http.Response('not found', 404);
@@ -243,6 +248,69 @@ void main() {
       expect(sent.map((m) => m['content']), ['今天好累', '先吃点东西。']);
     });
   });
+
+  testWidgets(
+    'overlapping finished replies are both included in the latest sync',
+    (tester) async {
+      await mount(tester);
+      await tester.runAsync(() async {
+        final convo = await chat.createConversation(
+          title: 't',
+          assistantId: 'a',
+        );
+        await chat.addMessage(
+          conversationId: convo.id,
+          role: 'user',
+          content: '你在吗',
+        );
+        final firstReply = await chat.addMessage(
+          conversationId: convo.id,
+          role: 'assistant',
+          content: '我在。',
+        );
+
+        final gate = Completer<void>();
+        server.nextPutGate = gate;
+        final initialSync = binding.onAssistantMessageFinished(firstReply);
+        Future<void> waitForPuts(int count) async {
+          for (var i = 0; i < 100; i++) {
+            if (server.requests.where((r) => r.method == 'PUT').length >=
+                count) {
+              return;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+        }
+
+        late Future<void> replySync;
+        try {
+          await waitForPuts(1);
+          expect(server.requests.where((r) => r.method == 'PUT'), hasLength(1));
+
+          final reply = await chat.addMessage(
+            conversationId: convo.id,
+            role: 'assistant',
+            content: '还想问什么？',
+          );
+          replySync = binding.onAssistantMessageFinished(reply);
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          // The finished-reply sync waits behind the in-flight snapshot.
+          expect(server.requests.where((r) => r.method == 'PUT'), hasLength(1));
+        } finally {
+          if (!gate.isCompleted) gate.complete();
+        }
+        await initialSync;
+        await replySync;
+
+        final puts = server.requests.where((r) => r.method == 'PUT').toList();
+        expect(puts, hasLength(2));
+        final finalPayload = jsonDecode(puts.last.body) as Map<String, dynamic>;
+        final messages = (finalPayload['messages'] as List)
+            .cast<Map<String, dynamic>>();
+        expect(messages.map((m) => m['content']), ['你在吗', '我在。', '还想问什么？']);
+      });
+    },
+  );
 
   testWidgets('disabled assistants never touch the network', (tester) async {
     await mount(tester);

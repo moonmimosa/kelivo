@@ -195,19 +195,11 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
       }
       expect(requests, hasLength(1));
-      pending.first.complete((
-        prompt: 'old',
-        estimatedRequests: 99,
-        maxRequestAttempts: 1,
-      ));
+      pending.first.complete((prompt: 'old', estimatedRequests: 99));
       await tester.pump();
       expect(requests, hasLength(2));
       expect(requests.last.keepUserMessages, 3);
-      pending.last.complete((
-        prompt: 'latest',
-        estimatedRequests: 1,
-        maxRequestAttempts: 1,
-      ));
+      pending.last.complete((prompt: 'latest', estimatedRequests: 1));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },
@@ -229,7 +221,7 @@ void main() {
               ),
           ], const []),
           previewRequest: (_, _) async =>
-              (prompt: 'Preview', estimatedRequests: 1, maxRequestAttempts: 1),
+              (prompt: 'Preview', estimatedRequests: 1),
         ),
       ),
     );
@@ -839,11 +831,12 @@ void main() {
       await settleCompressionOptions(tester);
       final start = find.byType(FormSheetActions);
       expect(tester.widget<FormSheetActions>(start).onConfirm, isNull);
-      expect(find.byType(IosSwitch), findsNWidgets(2));
-      expect(
-        tester.widget<IosSwitch>(find.byType(IosSwitch).first).value,
-        isFalse,
+      final carryToggle = find.byWidgetPredicate(
+        (w) =>
+            w is IosSwitch &&
+            w.semanticLabel == AppLocalizationsEn().compressionCarryTitle,
       );
+      expect(carryToggle, findsNothing);
       final field = find.descendant(
         of: find.widgetWithText(IosFormTextField, 'Keep recent'),
         matching: find.byType(TextField),
@@ -853,6 +846,7 @@ void main() {
       await tester.ensureVisible(find.text('More settings'));
       await tester.tap(find.text('More settings'));
       await settleCompressionOptions(tester);
+      expect(tester.widget<IosSwitch>(carryToggle).value, isFalse);
       expect(tester.widget<SegmentedTabs>(find.byType(SegmentedTabs)).index, 0);
       expect(field, findsNothing);
       await tester.tap(find.byIcon(LucideIcons.chevronLeft));

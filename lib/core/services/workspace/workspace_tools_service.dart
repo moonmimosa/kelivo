@@ -24,6 +24,7 @@ import 'file_link_resolver.dart';
 import 'host_file_tools.dart';
 import 'workspace_file_access.dart';
 import 'workspace_file_coordinator.dart';
+import 'workspace_image_download.dart';
 import '../conversation_tool_permissions.dart';
 import '../../models/tool_permission_mode.dart';
 import 'output_buffer.dart';
@@ -54,7 +55,8 @@ class WorkspaceToolsService {
     this.permissionChanges,
     this.touchLastUsed,
     this.onSkillRead,
-    this.onShellCompleted,
+    this.refreshSkills,
+    this.isLinkedSkillEntrypoint,
     this.isToolEnabled,
     this.loadEnvironment,
   }) : registry = registry ?? ToolRunRegistry(),
@@ -99,7 +101,8 @@ class WorkspaceToolsService {
   readPermissionState;
   final Future<void> Function(String workspaceId)? touchLastUsed;
   final Future<void> Function(String skillId)? onSkillRead;
-  final Future<void> Function()? onShellCompleted;
+  final Future<void> Function()? refreshSkills;
+  final bool Function(String resolvedHostPath)? isLinkedSkillEntrypoint;
   final bool Function(String workspaceId, String tool)? isToolEnabled;
   final Future<EnvironmentExecutionConfig> Function()? loadEnvironment;
 
@@ -280,14 +283,14 @@ class WorkspaceToolsService {
       _fn(
         'view_image',
         [
-          'View a local image file when visual inspection is needed. Use this for images already on disk.',
-          'Paths: ${vocab.join(', ')}. Supports PNG, JPEG, GIF, WebP, and BMP; animated images use the first frame.',
-          'Returns image content to inspect. Large images are resized to at most 2048 pixels on the longest edge.',
+          'Inspect a local image or a direct public HTTP(S) image URL.',
+          'Local paths: ${vocab.join(', ')}. Supports PNG, JPEG, GIF, WebP, and BMP; animated images use the first frame.',
+          'Returns image content to inspect. Large images are resized to at most ${ToolImage.maxLongEdge} pixels on the longest edge.',
         ],
         {
           'path': {
             'type': 'string',
-            'description': 'Local filesystem path to an image file.',
+            'description': 'Local image file path or public HTTP(S) image URL.',
           },
         },
         ['path'],
@@ -296,7 +299,7 @@ class WorkspaceToolsService {
         'write_file',
         [
           'Create or overwrite a file with the given content.',
-          'Writable zones: workspace, chat, tmp. Skills are read-only.',
+          'Write to the workspace, chat, skills, and tmp directories, or to writable external mounts.',
         ],
         {
           'path': {'type': 'string', 'description': 'File path to write.'},
@@ -400,22 +403,23 @@ class WorkspaceToolsService {
     final chat = paths.sandboxed
         ? WorkspacePaths.guestChat
         : paths.sessionHostDir;
-    final skills = paths.sandboxed
-        ? WorkspacePaths.guestSkills
-        : paths.skillsHostDir;
+    final skills = paths.modelSkillsDir;
     final tmp = paths.sandboxed ? WorkspacePaths.guestTmp : paths.tmpHostRoot;
-    final outputsHint = paths.sandboxed
-        ? '${WorkspacePaths.guestChat}/outputs/<id>.txt'
-        : '${paths.sessionHostDir}/outputs/<id>.txt';
+    // Expose session facts and file link formatting here. Per-tool
+    // instructions (including the shell output path) belong in definitions().
     final buf = StringBuffer()
       ..writeln('<workspace>')
       ..writeln('Path zones:')
       ..writeln('- $workspace — project files (writable)')
       ..writeln('- $chat — this chat\'s attachments/ and outputs/ (writable)')
-      ..writeln('- $skills — installed skills (read-only)');
+      ..writeln(
+        '- $skills — shared skill library (writable). Use write_file to install '
+        'skills and edit_file to update them when those tools are enabled. '
+        'Save supporting files first, then write <name>/SKILL.md.',
+      );
     if (paths.sandboxed) {
       final source = defaultTargetPlatform == TargetPlatform.iOS
-          ? "from iOS Files (e.g. an Obsidian vault, Downloads, another app's iCloud container)"
+          ? 'from iOS Files (e.g. Downloads or iCloud Drive)'
           : 'from Environment settings (on-device folders)';
       final readOnly = paths.externalMounts
           .where((mount) => mount.readOnly)
@@ -433,32 +437,20 @@ class WorkspaceToolsService {
       ..writeln('- $tmp — scratch (writable, ephemeral)')
       ..writeln('cwd: ${ctx.cwd}')
       ..writeln(
-        'Enabled tools: ${toolNames.where(ctx.workspace.isToolEnabled).join(', ')}',
-      )
-      ..writeln();
-    if (ctx.workspace.isToolEnabled('shell')) {
-      buf.writeln(
-        'shell is one-shot: ${_shellInstructions(shell)} '
-        'Use non-interactive flags (-y). '
-        'Output is capped; long output is saved to $outputsHint.',
+        'The current tool definitions and workspace path permissions take '
+        'precedence over descriptions of tool availability or path access '
+        'in installed skills.',
       );
-      if (environmentVariableNames.isNotEmpty) {
-        buf.writeln(
+    if (ctx.workspace.isToolEnabled('shell') &&
+        environmentVariableNames.isNotEmpty) {
+      buf
+        ..writeln()
+        ..writeln(
           'User-configured environment variables are already injected: '
           '${environmentVariableNames.join(', ')}. '
           'Use ${shell?.environmentReference ?? (defaultTargetPlatform == TargetPlatform.windows ? 'the selected shell’s environment variable syntax' : r'$NAME')} references; '
           'do not print or attempt to discover their values.',
         );
-      }
-    }
-    if (ctx.workspace.isToolEnabled('read_file') &&
-        ctx.workspace.isToolEnabled('edit_file')) {
-      if (ctx.workspace.isToolEnabled('write_file')) {
-        buf.writeln(
-          'Prefer read_file, edit_file, and write_file over cat/sed.',
-        );
-      }
-      buf.writeln('Always read_file before editing.');
     }
     buf
       ..writeln()
@@ -841,13 +833,8 @@ class WorkspaceToolsService {
           executionError = e;
         } finally {
           unregisterCancellation?.call();
-          // A failed or cancelled command may still have installed/updated files.
-          // Refresh observers without turning a refresh failure into a tool error.
-          try {
-            await onShellCompleted?.call();
-          } catch (error) {
-            debugPrint('Workspace post-command refresh failed: $error');
-          }
+          // A failed or cancelled command may still have changed skills.
+          await _refreshSkills();
         }
 
         final runStatus = executionError != null || exited == null
@@ -983,6 +970,9 @@ class WorkspaceToolsService {
           run.finishHandoff();
         }
       },
+      // Shell runs share the installed library across workspaces. Direct file
+      // mutations wait for those runs while independent shells can still overlap.
+      sharedPaths: [ctx.paths.skillsHostDir],
     );
   }
 
@@ -1013,12 +1003,26 @@ class WorkspaceToolsService {
       );
     }
     try {
-      final resolved = await access.resolve(path, ctx.cwd);
-      ToolCallCancellation.current?.throwIfCancelled();
-      if (ctx.paths.sandboxed && resolved.zone == WorkspaceZone.outside) {
-        throw const PathResolutionException('Path is outside sandbox zones');
+      final url = Uri.tryParse(path.trim());
+      ResolvedPath? resolved;
+      final ToolImage image;
+      if (url != null &&
+          url.hasAuthority &&
+          (url.isScheme('http') || url.isScheme('https'))) {
+        final bytes = await downloadWorkspaceImage(
+          url,
+          checkAccess: access.permission.check,
+        );
+        image = await ToolImage.fromNetworkBytes(bytes);
+        access.permission.check();
+      } else {
+        resolved = await access.resolve(path, ctx.cwd);
+        ToolCallCancellation.current?.throwIfCancelled();
+        if (ctx.paths.sandboxed && resolved.zone == WorkspaceZone.outside) {
+          throw const PathResolutionException('Path is outside sandbox zones');
+        }
+        image = await ToolImage.read(resolved.hostPath);
       }
-      final image = await ToolImage.read(resolved.hostPath);
       ToolCallCancellation.current?.throwIfCancelled();
       final uri = await _snapshotImage(image);
       await _markToolsUsed(
@@ -1032,8 +1036,8 @@ class WorkspaceToolsService {
           ...WorkspaceToolMetadata(
             tool: tool,
             status: 'ok',
-            path: resolved.modelPath,
-            files: [_fileFor(ctx, resolved)],
+            path: resolved?.modelPath ?? path.trim(),
+            files: [if (resolved != null) _fileFor(ctx, resolved)],
           ).toJson(),
           kMcpResultMetadataKey: mcpResultMetadata([uri]),
         },
@@ -1177,11 +1181,17 @@ class WorkspaceToolsService {
     }
 
     try {
+      final changesSkillEntrypoint = _writesSkillEntrypoint(
+        ctx,
+        path,
+        resolved,
+      );
       final result = await HostFileTools(
         ctx.paths,
         access: access,
         checkCancelled: ToolCallCancellation.current?.throwIfCancelled,
       ).writeFile(path, content, cwd: ctx.cwd);
+      await _refreshSkillsAfterWrite(resolved, changesSkillEntrypoint);
       final link = linkFor(resolved, paths: ctx.paths);
       final body = <String, Object?>{
         'ok': true,
@@ -1249,6 +1259,11 @@ class WorkspaceToolsService {
     }
 
     try {
+      final changesSkillEntrypoint = _writesSkillEntrypoint(
+        ctx,
+        path,
+        resolved,
+      );
       final result =
           await HostFileTools(
             ctx.paths,
@@ -1261,6 +1276,9 @@ class WorkspaceToolsService {
             replaceAll: _boolArg(args, 'replace_all'),
             cwd: ctx.cwd,
           );
+      if (result.changed) {
+        await _refreshSkillsAfterWrite(resolved, changesSkillEntrypoint);
+      }
       final link = linkFor(resolved, paths: ctx.paths);
       final body = <String, Object?>{
         'ok': true,
@@ -1594,6 +1612,45 @@ class WorkspaceToolsService {
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } catch (_) {}
     return <String, dynamic>{'stdout': modelText, 'stderr': ''};
+  }
+
+  bool _writesSkillEntrypoint(
+    WorkspaceToolContext ctx,
+    String path,
+    ResolvedPath resolved,
+  ) {
+    if (refreshSkills == null) return false;
+    bool isEntrypoint(String hostPath) {
+      if (p.basename(hostPath).toLowerCase() != 'skill.md') return false;
+      final relative = WorkspacePaths.relativeToHostRoot(
+        ctx.paths.skillsHostDir,
+        hostPath,
+      );
+      return relative != null && p.split(relative).length == 2;
+    }
+
+    return isEntrypoint(resolved.hostPath) ||
+        (p.basename(path).toLowerCase() == 'skill.md' &&
+            isEntrypoint(ctx.paths.resolve(path, cwd: ctx.cwd).hostPath));
+  }
+
+  Future<void> _refreshSkillsAfterWrite(
+    ResolvedPath resolved,
+    bool changesSkillEntrypoint,
+  ) async {
+    // A shell may have changed a linked entrypoint while the write was queued.
+    if (changesSkillEntrypoint ||
+        (isLinkedSkillEntrypoint?.call(resolved.hostPath) ?? false)) {
+      await _refreshSkills();
+    }
+  }
+
+  Future<void> _refreshSkills() async {
+    try {
+      await refreshSkills?.call();
+    } catch (error) {
+      debugPrint('Workspace skill refresh failed: $error');
+    }
   }
 
   Future<void> _maybeNoteSkillRead(

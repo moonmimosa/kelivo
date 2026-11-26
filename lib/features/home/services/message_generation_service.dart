@@ -1,9 +1,12 @@
 import '../../../core/services/tools/view_image_tool.dart';
+import '../../../core/services/tools/generate_image_tool.dart';
 import '../../../core/models/native_compaction.dart';
 import '../../../core/models/compression_config.dart';
+import '../../../core/models/carried_original.dart';
 import '../../../core/services/api/native_compaction_context.dart';
 import '../../../core/services/api/providers/zhipu_layout_parsing.dart';
 import '../../../core/models/context_operation.dart';
+import '../../../core/models/image_context.dart';
 import '../../../core/services/api/request_image_context.dart';
 import '../../intelligent_ui/host/ui_context_submission.dart';
 import 'package:Kelivo/core/providers/external_mounts_provider.dart';
@@ -183,6 +186,7 @@ class MessageGenerationService {
     required String? assistantId,
     required String providerKey,
     required String modelId,
+    Set<String> imageFilteredRevisions = const {},
     String? requiredAttachmentMessageId,
     bool syncWorkspaceAttachments = true,
     bool persistWorldBookActivation = true,
@@ -225,6 +229,7 @@ class MessageGenerationService {
 
     final apiMessages = messageBuilderService.buildApiMessages(
       messages: messages,
+      imageFilteredRevisions: imageFilteredRevisions,
       versionSelections: versionSelections,
       currentConversation: currentConversation,
       includeToolMessages: includeToolMessages,
@@ -242,7 +247,12 @@ class MessageGenerationService {
     if (assistant != null && assistant.regexRules.isNotEmpty) {
       for (int i = 0; i < apiMessages.length; i++) {
         final role = (apiMessages[i]['role'] ?? '').toString();
-        if (role != 'assistant') continue;
+        if (role != 'assistant' ||
+            isCarriedMessageId(
+              apiMessages[i][imageContextOwnerKey]?.toString() ?? '',
+            )) {
+          continue;
+        }
         final raw = (apiMessages[i]['content'] ?? '').toString();
         if (raw.isEmpty) continue;
         apiMessages[i]['content'] = applyAssistantRegexes(
@@ -303,12 +313,14 @@ class MessageGenerationService {
       conversation: promptConversation,
       conversationScoped: assistant?.allowConversationPromptInjection ?? false,
     );
+    var afterWorldBook = '';
     await messageBuilderService.injectWorldBookPrompts(
       apiMessages,
       assistantId,
       conversation: promptConversation,
       conversationScoped: assistant?.allowConversationPromptInjection ?? false,
       persistActivation: persistWorldBookActivation,
+      deferAfterSystemPrompt: (content) => afterWorldBook = content,
       onActivationPersisted: onWorldBookActivationPersisted,
       sourceMessages: messageBuilderService.collapseVersions(
         messages,
@@ -317,6 +329,7 @@ class MessageGenerationService {
     );
 
     WorkspaceToolContext? workspaceContext;
+    var addedWorkspace = false;
     var workspaceAttachments = const <AttachmentInfo>[];
     try {
       if (workspaceProvider != null && runtimeProvider != null) {
@@ -342,7 +355,7 @@ class MessageGenerationService {
         );
       }
       if (workspaceContext != null) {
-        await messageBuilderService.injectWorkspacePrompt(
+        addedWorkspace = await messageBuilderService.injectWorkspacePrompt(
           apiMessages,
           assistant,
           conversationId: currentConversation?.id,
@@ -355,11 +368,17 @@ class MessageGenerationService {
       }
       debugPrint('Workspace prompt/attachments failed: $e');
     }
-    await messageBuilderService.injectSkillsPrompt(
+    final addedSkills = await messageBuilderService.injectSkillsPrompt(
       apiMessages,
       assistant,
       conversationId: currentConversation?.id,
       workspaceContext: workspaceContext,
+    );
+
+    messageBuilderService.appendWorldBookAfterPrompt(
+      apiMessages,
+      afterWorldBook,
+      afterNewSection: addedWorkspace || addedSkills,
     );
 
     final mcpRouteSnapshot = generationController.captureMcpToolRoutes(
@@ -395,6 +414,7 @@ class MessageGenerationService {
     required String? assistantId,
     required List<ChatMessage> messages,
     required DateTime promptTime,
+    required bool includeInstructionInjections,
   }) async {
     final assistant = assistantId == null
         ? null
@@ -413,12 +433,15 @@ class MessageGenerationService {
       conversation: conversation,
       promptTime: promptTime,
     );
-    await messageBuilderService.injectInstructionPrompts(
-      apiMessages,
-      assistantId,
-      conversation: conversation,
-      conversationScoped: assistant?.allowConversationPromptInjection ?? false,
-    );
+    if (includeInstructionInjections) {
+      await messageBuilderService.injectInstructionPrompts(
+        apiMessages,
+        assistantId,
+        conversation: conversation,
+        conversationScoped:
+            assistant?.allowConversationPromptInjection ?? false,
+      );
+    }
     await messageBuilderService.injectWorldBookPrompts(
       apiMessages,
       assistantId,
@@ -526,12 +549,21 @@ class MessageGenerationService {
               ? assistant!.contextMessageSize
               : 0x7fffffff,
         );
+    final imageSettings = await chatService.imageContextSettings(
+      conversationId,
+    );
+    final excludedAttachments = RequestImageContext.withoutExcludedAttachments(
+      messages,
+      imageSettings.excluded,
+    );
+    final requestMessages = excludedAttachments.messages;
     final packed = await assembleUnprocessedRequestContext(
       fixedContextStart: fixedContextStart,
       promptTime: promptTime,
       forceResponses: forceResponses,
       applyMessageLimit: applyMessageLimit,
-      messages: messages,
+      messages: requestMessages,
+      imageFilteredRevisions: excludedAttachments.affectedRevisions,
       versionSelections: chatService.getVersionSelections(conversationId),
       currentConversation: conversation?.copyWith(truncateIndex: -1),
       settings: settings,
@@ -549,15 +581,19 @@ class MessageGenerationService {
       settings,
       assistant,
       conversation: conversation,
-      sourceMessages: messages,
+      sourceMessages: requestMessages,
+      imageFilteredRevisions: excludedAttachments.affectedRevisions,
       previewOnly: true,
       nativePdfInput: ModelSpecResolver.instance
           .spec(packed.cfg, modelId)
           .supportsPdfInput,
     );
-    final imageContext =
-        ChatApiService.supportsOpenAIImagesApiRouting(packed.cfg, modelId) ||
-            shouldUseZhipuLayoutParsing(packed.cfg, modelId)
+    await RequestImageContext.omitExcludedMarkdownImages(
+      packed.apiMessages,
+      messages,
+      imageSettings.excluded,
+    );
+    final imageContext = shouldUseZhipuLayoutParsing(packed.cfg, modelId)
         ? null
         : await _imageContext(
             conversationId,
@@ -565,6 +601,7 @@ class MessageGenerationService {
             packed,
             settings,
             modelId,
+            imageSettings: imageSettings,
           );
     if (imageContext != null) {
       await imageContext.prepareMessages(
@@ -572,6 +609,9 @@ class MessageGenerationService {
         const [],
         parseMarkdownImages: settings.sendMarkdownImageLinksAsImages,
         allowRemoteImages: imageContext.allowsRemoteUserImages,
+        includeGeneratedReferences: packed.toolDefs.any(
+          GenerateImageTool.acceptsReferences,
+        ),
       );
     }
     final imagePreview = await imageContext?.preview();
@@ -588,7 +628,7 @@ class MessageGenerationService {
       images: imagePreview == null
           ? imageRefsFromApiMessages(
               packed.apiMessages,
-              sourceMessages: messages,
+              sourceMessages: requestMessages,
             )
           : [
               for (final image in imagePreview)
@@ -603,6 +643,7 @@ class MessageGenerationService {
     UnprocessedRequestContext packed,
     SettingsProvider settings,
     String modelId, {
+    required ImageContextSettings imageSettings,
     bool omitImages = false,
   }) async {
     final cfg = packed.cfg;
@@ -613,7 +654,9 @@ class MessageGenerationService {
     final original = await chatService.imageContextHistory(
       conversationId,
       throughMessageId: messages
-          .where((m) => !ContextOperation.isSummary(m))
+          .where(
+            (m) => !ContextOperation.isSummary(m) && !isCarriedMessageId(m.id),
+          )
           .lastOrNull
           ?.id,
     );
@@ -629,11 +672,12 @@ class MessageGenerationService {
             cfg.vertexAI == true &&
             modelId.toLowerCase().startsWith('claude-'));
     return RequestImageContext(
-      settings: await chatService.imageContextSettings(conversationId),
+      settings: imageSettings,
       images: await RequestImageContext.collectHistory(
         history,
         parseMarkdownImages: settings.sendMarkdownImageLinksAsImages,
         allowRemoteImages: remoteImages,
+        excluded: imageSettings.excluded,
       ),
       userTurns: RequestImageContext.userTurnsFor(history),
       inlineRemoteUsers: kind == ProviderKind.google,
@@ -701,8 +745,17 @@ class MessageGenerationService {
         assistant: assistant,
       ),
     );
+    final imageSettings = currentConversation == null
+        ? const ImageContextSettings()
+        : await chatService.imageContextSettings(currentConversation.id);
+    final excludedAttachments = RequestImageContext.withoutExcludedAttachments(
+      messages,
+      imageSettings.excluded,
+    );
+    final requestMessages = excludedAttachments.messages;
     final packed = await assembleUnprocessedRequestContext(
-      messages: messages,
+      messages: requestMessages,
+      imageFilteredRevisions: excludedAttachments.affectedRevisions,
       versionSelections: versionSelections,
       currentConversation: currentConversation,
       settings: settings,
@@ -752,7 +805,7 @@ class MessageGenerationService {
               apiMessages,
               settings,
               conversation: currentConversation,
-              sourceMessages: messages,
+              sourceMessages: requestMessages,
               sandboxDataFiles: sandboxDataFiles,
               nativePdfInput: nativePdfInput,
               workspaceAttachments: localAttachments,
@@ -771,37 +824,42 @@ class MessageGenerationService {
             settings,
             assistant,
             conversation: currentConversation,
-            sourceMessages: messages,
+            sourceMessages: requestMessages,
+            imageFilteredRevisions: excludedAttachments.affectedRevisions,
             sandboxDataFiles: sandboxDataFiles,
             nativePdfInput: nativePdfInput,
             workspaceAttachments: localAttachments,
             useWorkspaceForDocuments: hasWorkspaceFileTools,
           );
-    } on AttachmentRequiresWorkspace catch (e) {
-      if (!contextProvider.mounted) rethrow;
-      throw Exception(
-        AppLocalizations.of(
-              contextProvider,
-            )?.attachmentRequiresWorkspace(e.name) ??
-            e.toString(),
-      );
+    } on AttachmentReadError catch (e) {
+      if (resolvedWorkspace != null &&
+          !resolvedWorkspace.skillsOnly &&
+          !hasWorkspaceFileTools &&
+          e.problem != AttachmentProblem.missing) {
+        throw AttachmentReadError(AttachmentProblem.workspace, e.name);
+      }
+      rethrow;
     } finally {
       if (indicatorMessageId != null) {
         onFileProcessingFinished?.call(indicatorMessageId);
       }
     }
 
+    await RequestImageContext.omitExcludedMarkdownImages(
+      apiMessages,
+      messages,
+      imageSettings.excluded,
+    );
     RequestImageContext? imageContext;
     if (currentConversation != null &&
-        (omitImages ||
-            (!ChatApiService.supportsOpenAIImagesApiRouting(cfg, modelId) &&
-                !shouldUseZhipuLayoutParsing(cfg, modelId)))) {
+        (omitImages || !shouldUseZhipuLayoutParsing(cfg, modelId))) {
       imageContext = await _imageContext(
         currentConversation.id,
         messages,
         packed,
         settings,
         modelId,
+        imageSettings: imageSettings,
         omitImages: omitImages,
       );
       lastUserImagePaths = await imageContext.prepareMessages(
@@ -809,6 +867,9 @@ class MessageGenerationService {
         lastUserImagePaths,
         parseMarkdownImages: settings.sendMarkdownImageLinksAsImages,
         allowRemoteImages: imageContext.allowsRemoteUserImages,
+        includeGeneratedReferences: packed.toolDefs.any(
+          GenerateImageTool.acceptsReferences,
+        ),
       );
     } else {
       await messageBuilderService.inlineLocalImages(apiMessages);
@@ -838,9 +899,15 @@ class MessageGenerationService {
           )
         : null;
 
+    final currentImageIds = imageContext?.currentGenerationReferenceIds;
     return PreparedGeneration(
       apiMessages: apiMessages,
-      toolDefs: toolDefs,
+      toolDefs: currentImageIds == null || currentImageIds.isEmpty
+          ? toolDefs
+          : [
+              for (final tool in toolDefs)
+                GenerateImageTool.withCurrentAttachments(tool, currentImageIds),
+            ],
       onToolCall: onToolCall,
       hasBuiltInSearch: hasBuiltInSearch,
       lastUserImagePaths: lastUserImagePaths,
@@ -1123,7 +1190,6 @@ class MessageGenerationService {
     required ChatMessage assistantMessage,
     required PreparedGeneration prepared,
     required List<String> userImagePaths,
-    required bool allowImagesApiRouting,
     required String providerKey,
     required String modelId,
     required Assistant? assistant,
@@ -1152,7 +1218,6 @@ class MessageGenerationService {
             allowRemoteImages: prepared.imageContext!.allowsRemoteUserImages,
           ) ??
           userImagePaths,
-      allowImagesApiRouting: allowImagesApiRouting,
       providerKey: providerKey,
       modelId: modelId,
       assistant: assistant,

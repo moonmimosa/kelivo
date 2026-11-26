@@ -143,6 +143,20 @@ class AppLocalizationsTr extends AppLocalizations {
       'Dosyalar yüklenemedi veya hangi görsellerin kullanımda olduğu kontrol edilemedi. Lütfen yenileyip tekrar deneyin.';
 
   @override
+  String get storageSpaceCopyErrorDetails => 'Hata ayrıntılarını kopyala';
+
+  @override
+  String get storageAttachmentChecking => 'Ek kullanımı kontrol ediliyor…';
+
+  @override
+  String get storageAttachmentCheckFailed =>
+      'Ek kullanımı kontrol edilemedi. Yeniden denemek için yenileyin.';
+
+  @override
+  String get storageSpaceCopyErrorFailed =>
+      'Hata ayrıntıları kopyalanamadı. Lütfen tekrar deneyin.';
+
+  @override
   String get storageSpaceTotalLabel => 'Kullanılan';
 
   @override
@@ -788,6 +802,20 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get homePageDeleteMessageConfirm =>
       'Bu sürümü silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.';
+
+  @override
+  String get homePageDeleteOtherVersions => 'Diğer Sürümleri Sil';
+
+  @override
+  String homePageDeleteOtherVersionsConfirm(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count diğer sürüm silinecek.',
+      one: '$count diğer sürüm silinecek.',
+    );
+    return 'Mesajın bu sürümü korunsun mu? $_temp0 Bu işlem geri alınamaz.';
+  }
 
   @override
   String get homePageDeleteAllVersions => 'Tüm Sürümleri Sil';
@@ -1613,6 +1641,15 @@ class AppLocalizationsTr extends AppLocalizations {
   String get hotkeysResetAll => 'Tümünü varsayılana sıfırla';
 
   @override
+  String hotkeysShortcutInUse(String action) {
+    return 'Bu kısayol zaten “$action” eylemine atanmış.';
+  }
+
+  @override
+  String get hotkeysTextEditing =>
+      'Metin düzenleme ve odaklar arasında gezinme';
+
+  @override
   String get assistantEditTemperatureTitle => 'Sıcaklık';
 
   @override
@@ -1700,7 +1737,25 @@ class AppLocalizationsTr extends AppLocalizations {
       'iCloud Drive\'ı veya \"iPhone\'um > Kelivo\" dışında bir klasör seçin. Kelivo klasöründeki dosyalar uygulamayla birlikte silinir. Yedek kaydedilmedi.';
 
   @override
+  String get backupPageChooseNewFile =>
+      'Yedeğinizi kaydetmek için yeni bir dosya adı veya başka bir klasör seçin.';
+
+  @override
+  String backupArchiveFileSizeLimit(String name, String limit) {
+    return '“$name” yedek dosyası, dosya başına $limit sınırını aşıyor.';
+  }
+
+  @override
+  String backupArchiveTotalSizeLimit(String limit) {
+    return 'Sıkıştırılmamış yedek, $limit sınırını aşıyor.';
+  }
+
+  @override
   String get backupPageFilesLabel => 'Dosyalar ve Görseller';
+
+  @override
+  String get backupPageSettingsSaveFailed =>
+      'Yedekleme ayarları kaydedilemedi. Lütfen tekrar deneyin.';
 
   @override
   String get backupPageScopeTitle => 'Yedekleme ve içe aktarma içeriği';
@@ -1826,7 +1881,8 @@ class AppLocalizationsTr extends AppLocalizations {
   String get restoreProgressStageInstallingBackup => 'Yedek yükleniyor';
 
   @override
-  String get restoreProgressStageVerifying => 'Doğrulanıyor';
+  String get restoreProgressStageVerifying =>
+      'Geri yüklenen veriler kontrol ediliyor';
 
   @override
   String get restoreProgressStageRollingBack =>
@@ -2129,7 +2185,45 @@ class AppLocalizationsTr extends AppLocalizations {
   String get backupProgressErrorCopied => 'Hata kopyalandı';
 
   @override
+  String get backupProgressSkippedTitle =>
+      'Yedekleme atlanan öğelerle tamamlandı';
+
+  @override
+  String backupProgressSkippedMessage(int count) {
+    return 'Okunamayan dosya veya dizinler atlandı: $count. Bu yedeğe dahil edilmediler.';
+  }
+
+  @override
   String get backupProgressPreparing => 'Hazırlanıyor';
+
+  @override
+  String get backupProgressScanning => 'Yedek dosyaları taranıyor';
+
+  @override
+  String backupProgressDiscoveredFiles(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count dosya bulundu',
+      one: '$count dosya bulundu',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupProgressCheckingDatabase => 'Veritabanı kontrol ediliyor';
+
+  @override
+  String get backupProgressChoosingDestination =>
+      'Kaydedilecek konum seçiliyor';
+
+  @override
+  String get backupProgressSavingFile => 'Yedek dosyası kaydediliyor';
+
+  @override
+  String backupProgressElapsed(String time) {
+    return 'Geçen süre $time';
+  }
 
   @override
   String get backupProgressSnapshotting =>
@@ -2139,7 +2233,7 @@ class AppLocalizationsTr extends AppLocalizations {
   String get backupProgressPacking => 'Paketleniyor';
 
   @override
-  String get backupProgressVerifying => 'Doğrulanıyor';
+  String get backupProgressVerifying => 'Yedek arşivi kontrol ediliyor';
 
   @override
   String get backupProgressUploading => 'Yükleniyor';
@@ -2151,13 +2245,14 @@ class AppLocalizationsTr extends AppLocalizations {
   String get backupProgressExtracting => 'Çıkarılıyor';
 
   @override
-  String get backupProgressValidating => 'Geçerliliği kontrol ediliyor';
+  String get backupProgressValidating =>
+      'Geri yükleme dosyaları kontrol ediliyor';
 
   @override
   String get backupProgressReadingSettings => 'Ayarlar okunuyor';
 
   @override
-  String get backupProgressStaging => 'Hazırlanıyor';
+  String get backupProgressStaging => 'Geri yükleme dosyaları hazırlanıyor';
 
   @override
   String get backupProgressCommitting => 'Kaydediliyor';
@@ -2203,6 +2298,22 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get backupPageImportFromOtherApps => 'Diğer Uygulamalardan İçe Aktar';
+
+  @override
+  String get backupPageImportFromOtherAppsSubtitle =>
+      'Yeni Chatbox ve Cherry Studio 2.x yedekleri ile ChatGPT, Claude, DeepSeek, Gemini, Grok, Open WebUI, NextChat ve LobeChat. Tarayıcınızda yerel olarak Kelivo yedeğine dönüştürülür; dosya yüklenmez.';
+
+  @override
+  String get backupPageOpenImportToolbox => 'Araç Kutusunu Aç';
+
+  @override
+  String backupPageImportToolboxOpenFailed(String url) {
+    return 'Tarayıcı açılamadı. Bu URL\'yi kendiniz açın: $url';
+  }
+
+  @override
+  String get backupPageToolboxImportMergeOnlyHint =>
+      'Bu dosya resmi araç kutusu tarafından dönüştürüldü. Mevcut verilerinizle birleştirilecek ve bu cihazdaki sohbetlerin veya asistanların yerini almayacak.';
 
   @override
   String get backupPageNotSupportedYet => 'Henüz desteklenmiyor';
@@ -2290,7 +2401,12 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String backupPageCherryStudioUnsupportedBackupVersion(String version) {
-    return 'Bu yedek, Kelivo\'nun henüz içe aktaramadığı Cherry Studio biçim sürümü $version kullanıyor. Bunun yerine Cherry Studio v1\'den dışa aktarın veya Cherry Studio v2 yedeklerini destekleyen bir Kelivo güncellemesini bekleyin.';
+    return 'Bu bir Cherry Studio 2.x yedeği (biçim sürümü $version) ve uygulamada doğrudan içe aktarılamaz. Resmi araç kutusuyla Kelivo yedeğine dönüştürün, ardından Yedek Dosyasını İçe Aktar\'ı kullanıp Birleştir\'i seçin. Dönüştürme tarayıcınızda gerçekleşir; dosya yüklenmez.';
+  }
+
+  @override
+  String backupPageChatboxUnsupportedBackupVersion(String version) {
+    return 'Bu daha yeni bir Chatbox yedeği (biçim sürümü $version) ve uygulamada doğrudan içe aktarılamaz. Resmi araç kutusuyla Kelivo yedeğine dönüştürün, ardından Yedek Dosyasını İçe Aktar\'ı kullanıp Birleştir\'i seçin. Dönüştürme tarayıcınızda gerçekleşir; dosya yüklenmez.';
   }
 
   @override
@@ -3065,6 +3181,9 @@ class AppLocalizationsTr extends AppLocalizations {
       'Derin Düşünme ve araç kartlarını göster';
 
   @override
+  String get messageExportSheetExpandAllSteps => 'Tüm adımları genişlet';
+
+  @override
   String get messageExportSheetShowThinkingContent =>
       'Düşünme içeriğini göster';
 
@@ -3400,12 +3519,6 @@ class AppLocalizationsTr extends AppLocalizations {
   String get chatInputBarImageProcessing => 'Görsel işleniyor';
 
   @override
-  String get chatInputBarImageMode => 'Görsel modu';
-
-  @override
-  String get chatInputBarDisableImageModeTooltip => 'Görsel modunu kapat';
-
-  @override
   String get chatInputBarQueuedPending => 'Gönderilmek üzere sırada';
 
   @override
@@ -3703,7 +3816,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get defaultModelPageTitleModelSubtitle =>
-      'Sohbet başlıklarını varsayılan olarak geçerli sohbet modelini kullanarak veya seçili bir modelle özetler.';
+      'Sohbet başlıklarını varsayılan olarak geçerli sohbet modeliyle veya seçilen bir modelle özetler. Oluşturma, konuları otomatik adlandırmak için de bunu kullanır.';
 
   @override
   String get titleModelThinkingTitle => 'Akıl Yürütmeyi Etkinleştir';
@@ -4253,6 +4366,13 @@ class AppLocalizationsTr extends AppLocalizations {
       'http(s) görsel bağlantılarını olduğu gibi gönder; kapalıyken uzak bağlantılar atlanır ve yalnızca yerel görseller gönderilir';
 
   @override
+  String get modelSpecFormResponseSpeedTiers => 'Yanıt hızı kademeleri';
+
+  @override
+  String get modelSpecFormResponseSpeedTiersSubtitle =>
+      'Bu modelin sohbetlerde sunduğu hızlandırma kademelerini özelleştirin. Yalnızca Standart sunmak için ikisini de temizleyin.';
+
+  @override
   String get modelSpecFormPromptCacheControl => 'İstem önbellek işaretçisi';
 
   @override
@@ -4468,6 +4588,68 @@ class AppLocalizationsTr extends AppLocalizations {
   String get providerDetailPageClaudePromptCachingTtl1h => '1 saat';
 
   @override
+  String get providerBalanceAutoRefresh => 'Otomatik bakiye yenileme';
+
+  @override
+  String get providerBalanceScopeProvider => 'Bu sağlayıcı';
+
+  @override
+  String get providerBalanceScopeGlobal => 'Genel varsayılanlar';
+
+  @override
+  String get providerBalanceInterval => 'Zamanlı yenileme';
+
+  @override
+  String get providerBalanceFalPermissionHint =>
+      'Bakiye sorguları için billing:usage:read iznine sahip bir fal anahtarı gerekir. Ayrı bir faturalandırma anahtarı kullanmak için buraya Authorization başlığı ekleyin; değeri Key, bir boşluk ve anahtar olsun.';
+
+  @override
+  String get providerBalanceRefreshAfterGeneration =>
+      'Oluşturma sonrası yenile';
+
+  @override
+  String get providerBalanceRefreshOnReply => 'Yanıtlardan sonra yenile';
+
+  @override
+  String providerBalanceFollowDefault(String value) {
+    return 'Varsayılan · $value';
+  }
+
+  @override
+  String get providerBalanceRefreshOff => 'Kapalı';
+
+  @override
+  String get providerBalanceRefreshOn => 'Açık';
+
+  @override
+  String providerBalanceRefreshMinutes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count dakika',
+      one: '1 dakika',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get providerBalanceRefreshHour => '1 saat';
+
+  @override
+  String get providerBalanceCustomInterval => 'Özel aralık…';
+
+  @override
+  String get providerBalanceIntervalMinutes => 'Dakika cinsinden aralık';
+
+  @override
+  String get providerBalanceRefreshNow => 'Bakiyeyi şimdi yenile';
+
+  @override
+  String providerBalanceLastUpdated(String date, String time) {
+    return 'Son güncelleme: $date $time';
+  }
+
+  @override
   String get providerDetailPageBalanceTitle => 'Hesap Bakiyesi';
 
   @override
@@ -4503,11 +4685,16 @@ class AppLocalizationsTr extends AppLocalizations {
   String get providerDetailPageBalanceQuerying => 'Kontrol ediliyor...';
 
   @override
-  String get providerDetailPageBalanceResetDefaultsButton => 'Sıfırla';
+  String get providerDetailPageBalanceResetDefaultsButton =>
+      'Varsayılan bakiye ayarlarını geri yükle';
 
   @override
-  String get providerDetailPageBalanceResetDefaultsTooltip =>
-      'Bakiye ayarlarını sıfırla';
+  String get providerDetailPageBalanceResetConfirmMessage =>
+      'Bu işlem, bu sağlayıcının özel bakiye isteği ayarlarını değiştirecek, bakiye anahtarını varsayılan durumuna döndürecek ve otomatik yenilemenin genel ayarları izlemesini sağlayacaktır.';
+
+  @override
+  String get providerDetailPageBalanceResetConfirmButton =>
+      'Varsayılanları geri yükle';
 
   @override
   String providerDetailPageBalanceResult(String value) {
@@ -4863,6 +5050,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get providerDetailPageModelsTitle => 'Modeller';
 
   @override
+  String get providerDetailPageReorderModels => 'Modelleri yeniden sırala';
+
+  @override
   String get providerModelsGetButton => 'Getir';
 
   @override
@@ -4997,12 +5187,57 @@ class AppLocalizationsTr extends AppLocalizations {
   String get miniMapScrollToBottomTooltip => 'En alta kaydır';
 
   @override
+  String get miniMapSearchHint => 'Mini haritada ara';
+
+  @override
   String miniMapSearchMatchCount(int count) {
-    return '$count';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count eşleşme',
+      one: '1 eşleşme',
+    );
+    return '$_temp0';
   }
 
   @override
   String get miniMapSearchNoResults => 'Eşleşen mesaj yok';
+
+  @override
+  String get miniMapSearchFailed => 'Mesajlar aranamadı';
+
+  @override
+  String get conversationFindHint => 'Bul';
+
+  @override
+  String get conversationFindPrevious => 'Önceki eşleşme';
+
+  @override
+  String get conversationFindNext => 'Sonraki eşleşme';
+
+  @override
+  String get conversationFindOptions => 'Bulma seçenekleri';
+
+  @override
+  String conversationFindMatchPosition(int current, int total) {
+    return '$current/$total';
+  }
+
+  @override
+  String get conversationFindCaseSensitive => 'Büyük/küçük harf eşleştir';
+
+  @override
+  String get conversationFindWholeWord => 'Tam kelime';
+
+  @override
+  String get conversationFindWholeWordTooltip =>
+      'Kelime sınırları olan yazı sistemlerinde (ör. İngilizce) tam kelimeleri eşleştirir. Çince, Japonca veya Korece karakter içeren sorgular yine alt dize eşleştirmesi kullanır.';
+
+  @override
+  String get conversationFindIncludeThinking => 'Akıl yürütmeyi dahil et';
+
+  @override
+  String get conversationFindOpenTooltip => 'Sohbette bul';
 
   @override
   String get searchServicesPageApiKeyRequiredStatus => 'API Anahtarı Gerekli';
@@ -5110,10 +5345,32 @@ class AppLocalizationsTr extends AppLocalizations {
       'Bölge (isteğe bağlı, varsayılan: us-en)';
 
   @override
+  String get searchServicesFourGetUrlInvalid =>
+      'Bir HTTP veya HTTPS temel URL\'si girin.';
+
+  @override
+  String get searchServicesFourGetScraperOptional =>
+      'Üst kaynak motoru (isteğe bağlı)';
+
+  @override
+  String get searchServicesFourGetPassOptional => 'pass çerezi (isteğe bağlı)';
+
+  @override
+  String get searchServicesFourGetPassHelp =>
+      'Örnek bir CAPTCHA gerektiriyorsa, CAPTCHA\'yı tamamlayın ve pass çerezinin değerini yapıştırın.';
+
+  @override
   String get searchServiceEditorProviderTypeTitle => 'Arama sağlayıcısı';
 
   @override
   String get searchServiceEditorConfigurationTitle => 'Yapılandırma';
+
+  @override
+  String get searchServiceEditorChangeIcon => 'Simgeyi değiştir';
+
+  @override
+  String get searchServiceEditorIconFailed =>
+      'Bu simge kullanılamadı. Başka bir görsel veya simge seçin.';
 
   @override
   String get searchServiceEditorNoConfiguration =>
@@ -5685,6 +5942,14 @@ class AppLocalizationsTr extends AppLocalizations {
       'Otomatik olarak Konulara geç';
 
   @override
+  String get desktopDisplaySettingsFullWidthChatTitle =>
+      'Tam genişlikte sohbet';
+
+  @override
+  String get desktopDisplaySettingsFullWidthChatSubtitle =>
+      'Mesajları ve giriş kutusunu sohbet alanını dolduracak şekilde genişlet.';
+
+  @override
   String get desktopDisplaySettingsTopicPositionTitle => 'Konu konumu';
 
   @override
@@ -5943,6 +6208,10 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get asrServicesOpenAiSubtitle =>
       'Düşük gecikmeli akışlı transkripsiyon';
+
+  @override
+  String get asrServicesDeepSeekSubtitle =>
+      'Kayıtları yazıya döker ve dili otomatik olarak algılar';
 
   @override
   String get asrServicesGroqSubtitle => 'Whisper segmentli transkripsiyon';
@@ -6214,6 +6483,16 @@ class AppLocalizationsTr extends AppLocalizations {
   String get ttsServicesFieldVoiceLabel => 'Ses';
 
   @override
+  String ttsServicesDeepSeekVoice(String voiceId) {
+    String _temp0 = intl.Intl.selectLogic(voiceId, {
+      'stella': 'Stella (kadın)',
+      'tide': 'Tide (erkek)',
+      'other': '$voiceId',
+    });
+    return '$_temp0';
+  }
+
+  @override
   String get ttsServicesFieldVoiceIdLabel => 'Ses Kimliği';
 
   @override
@@ -6461,27 +6740,6 @@ class AppLocalizationsTr extends AppLocalizations {
   String get imageViewerPageNextButton => 'Sonraki Görsel';
 
   @override
-  String get imageViewerPageZoomInButton => 'Yakınlaştır';
-
-  @override
-  String get imageViewerPageZoomOutButton => 'Uzaklaştır';
-
-  @override
-  String get imageViewerPageResetZoomButton => 'Yakınlaştırmayı Sıfırla';
-
-  @override
-  String get imageViewerPageFlipHorizontalButton => 'Yatay Çevir';
-
-  @override
-  String get imageViewerPageFlipVerticalButton => 'Dikey Çevir';
-
-  @override
-  String get imageViewerPageRotateLeftButton => 'Sola Döndür';
-
-  @override
-  String get imageViewerPageRotateRightButton => 'Sağa Döndür';
-
-  @override
   String imageViewerPageCounter(int index, int total) {
     return '$index/$total';
   }
@@ -6538,6 +6796,10 @@ class AppLocalizationsTr extends AppLocalizations {
       'Gizliliğe saygılı meta arama motoru. Kendi barındırdığınız bir örnek gerekir; izleme yok.';
 
   @override
+  String get searchProviderFourGetDescription =>
+      'API\'si etkinleştirilmiş genel veya kendi barındırdığınız bir 4get örneği üzerinden web araması yapın.';
+
+  @override
   String get searchProviderTavilyDescription =>
       'LLM\'ler için optimize edilmiş AI arama API\'si. Yüksek kaliteli, ilgili sonuçlar sağlar.';
 
@@ -6577,6 +6839,9 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get searchServiceNameSearXNG => 'SearXNG';
+
+  @override
+  String get searchServiceNameFourGet => '4get';
 
   @override
   String get searchServiceNameLinkUp => 'LinkUp';
@@ -6696,6 +6961,13 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get searchProviderYouDescription =>
       'You.com Arama API\'si. Highlights veya Snippets ile web ve haber sonuçları döndürür.';
+
+  @override
+  String get searchServiceNameKeenable => 'Keenable';
+
+  @override
+  String get searchProviderKeenableDescription =>
+      'Keenable Search. API anahtarı isteğe bağlıdır; yoksa herkese açık uç nokta kullanılır.';
 
   @override
   String get searchServicesDialogContentMode => 'İçerik modu';
@@ -7618,7 +7890,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String logViewerRequestsCount(int count) {
-    return '$count istek';
+    return '$count yüklenen istek';
   }
 
   @override
@@ -8522,7 +8794,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String legacyMemoryModeCacheWarning(String token) {
-    return 'Varsayılan şablon $token aracılığıyla geçerli saati ekler, bu da önbellek isabet oranını etkiler. İhtiyacınız yoksa kaldırın.';
+    return 'Şablon hâlâ $token içeriyorsa, enjekte edilirken çıkarılır ve artık geçerli zamanla doldurulmaz. Modelin geçerli zamanı bilmesi gerekiyorsa, asistan ayarlarında \"Geçerli saati ekle\" seçeneğini açın.';
   }
 
   @override
@@ -9535,6 +9807,14 @@ class AppLocalizationsTr extends AppLocalizations {
       'Temayı izler; özelleştirilemez';
 
   @override
+  String get messageStyleSettingsPageShowAssistantBodyBubble =>
+      'Asistan yanıt balonlarını göster';
+
+  @override
+  String get messageStyleSettingsPageShowAssistantBodyBubbleSubtitle =>
+      'Yanıt metnini doğrudan sohbet arka planında göstermek için kapatın';
+
+  @override
   String get messageStyleSettingsPageAssistantFitContent =>
       'Asistan balonunu içeriğe sığdır';
 
@@ -9549,6 +9829,14 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get messageStyleSettingsPageAssistantSplitParagraphsSubtitle =>
       'Asistan yanıtındaki boş satırlar her paragrafı ayrı bir balona böler';
+
+  @override
+  String get messageStyleSettingsPageCustomizeThinkingToolCards =>
+      'Düşünme ve araç kartlarını özelleştir';
+
+  @override
+  String get messageStyleSettingsPageCustomizeThinkingToolCardsSubtitle =>
+      'Düşünme ve araç çağrılarına kendi görünümlerini ver';
 
   @override
   String get messageStyleSettingsPageStyleFrostedSubtitle =>
@@ -9603,8 +9891,11 @@ class AppLocalizationsTr extends AppLocalizations {
   String get messageStyleSettingsPageRoleAssistant => 'Asistan';
 
   @override
+  String get messageStyleSettingsPageRoleThinkingTool => 'Kartlar';
+
+  @override
   String get messageStyleSettingsPageRoleAssistantHint =>
-      'Asistan ayarları ayrıca düşünme, araç çağırma ve çeviri kartlarına da uygulanır.';
+      'Çeviri kartları asistan stilini izler. Düşünme ve araç kartları varsayılan olarak onu izler.';
 
   @override
   String get localSnapshotSectionTitle => 'Yerel Kopyalar';
@@ -11498,18 +11789,18 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get storageSpaceCategorySessionFilesHint =>
-      'Sohbet başına ekler ve çıktılar.';
+      'Çalışma alanı sohbet ekleri ve çıktıları. Sıradan sohbet yüklemeleri Görseller ve Dosyalar bölümünde listelenir.';
 
   @override
   String get storageSpaceManageSkills => 'Becerileri yönet';
 
   @override
   String get storageSessionFilesCleanOrphans =>
-      'Sohbeti olmayan dosyaları temizle';
+      'Boş ve sahipsiz klasörleri temizle';
 
   @override
   String storageSessionFilesCleanOrphansHint(String size) {
-    return 'Artık bir sohbete bağlı olmayan oturum klasörlerini siler. Geri kazanılabilir: $size.';
+    return 'Boş sohbet klasörlerini ve hiçbir sohbeti veya kalan referansı olmayan klasörleri kaldır. Sahipsiz dosyalar $size yer kaplıyor.';
   }
 
   @override
@@ -11648,7 +11939,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get workspaceToolHelpViewImage =>
-      'Modelin çalışma alanındaki bir görseli incelemesine izin verin.';
+      'Modelin çalışma alanındaki görselleri veya genel URL\'lerdeki görselleri incelemesine izin verin.';
 
   @override
   String get workspaceToolHelpWrite =>
@@ -11760,8 +12051,40 @@ class AppLocalizationsTr extends AppLocalizations {
       'Sohbetler arasında geçiş yapılamadı. Taslağınız korundu.';
 
   @override
+  String attachmentEncodingUnrecognized(String name) {
+    return '“$name” dosyasının metin kodlaması tanınamadı. UTF-8 olarak kaydedip yeniden gönderin.';
+  }
+
+  @override
+  String get attachmentEncodingUnrecognizedShort => 'Kodlama tanınamadı';
+
+  @override
+  String attachmentNotText(String name) {
+    return '“$name” bir metin dosyası değil, bu yüzden burada kullanılamaz.';
+  }
+
+  @override
+  String get attachmentNotTextShort => 'Metin dosyası değil';
+
+  @override
+  String attachmentTruncatedNotice(int count) {
+    return 'Bu dosya çok büyük, bu yüzden yalnızca ilk $count karakter okundu. Kalanına ihtiyacınız varsa dosyayı bölüp yeniden gönderin.';
+  }
+
+  @override
+  String get attachmentTruncatedCard => 'Yalnızca başlangıç gönderilecek';
+
+  @override
+  String attachmentDocumentTooLarge(String name) {
+    return '“$name” normal bir sohbette okunamayacak kadar büyük.';
+  }
+
+  @override
+  String get attachmentDocumentTooLargeShort => 'Dosya çok büyük';
+
+  @override
   String attachmentRequiresWorkspace(String name) {
-    return '“$name” kullanmak için bir çalışma alanı bağlayıp dosya araçlarını etkinleştirin veya bu taslağı çalışma alanı olan bir sohbete taşıyın. Bu dosya normal bir sohbette doğrudan okunamaz.';
+    return '“$name” dosyasını kullanmak için bir çalışma alanı bağlayıp dosya araçlarını etkinleştirin veya bu taslağı çalışma alanı olan bir sohbete taşıyın. Bu dosya normal bir sohbette doğrudan okunamaz.';
   }
 
   @override
@@ -13678,7 +14001,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get backupEncryptionPasswordHint =>
-      'Bu parolayı güvenli tutun. Kaybederseniz yedek geri yüklenemez. Uygulamadan çıkana kadar yalnızca bellekte tutulur.';
+      'Bu parolayı güvenli bir yerde saklayın. Yedekleri başka bir cihazda geri yüklemek için bu parolaya ihtiyacınız olacak.';
 
   @override
   String get backupEncryptionPassword => 'Parola';
@@ -14955,7 +15278,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get compressOverSnack =>
-      'Özet hâlâ çok uzun ve sınırı aşacak, bu nedenle kullanılmadı. Tekrar sıkıştırın veya daha büyük bağlamı olan bir modele geçin.';
+      'Sonuç sohbet modelinin penceresini aşabilir. Özeti inceleyip uygulayabilirsiniz.';
 
   @override
   String get contextSummaryHint =>
@@ -15085,10 +15408,6 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get compressTaskAbandon => 'Vazgeç';
-
-  @override
-  String get browserAgentTimedOut =>
-      'İşlem zaman aşımına uğradı; AI duraklatıldı';
 
   @override
   String get compressCancelledSnack => 'İptal edildi. Bağlam değişmedi.';
@@ -15630,7 +15949,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get browserErrActionTimeout =>
-      'İşlem zaman aşımına uğradı; sonuç bilinmiyor. AI\'nın devam etmesine izin vermeden önce sayfayı kontrol edin.';
+      'İşlem zaman aşımına uğradı; sonuç bilinmiyor. Asistan devam etmeden önce sayfayı inceleyebilir.';
 
   @override
   String get toolPermissionRequestApprovalDesc =>
@@ -16044,6 +16363,19 @@ class AppLocalizationsTr extends AppLocalizations {
   String get imageContextOmitted => 'Dahil edilmedi';
 
   @override
+  String get imageContextExclude => 'Bağlamdan hariç tut';
+
+  @override
+  String get imageContextRestore => 'Dışlamayı kaldır';
+
+  @override
+  String get imageContextExcluded => 'Tarafınızdan hariç tutuldu';
+
+  @override
+  String get imageContextExcludedWithOriginal =>
+      'Orijinal görsel hariç tutuldu';
+
+  @override
   String get imageContextPin => 'Görseli sabitle';
 
   @override
@@ -16069,7 +16401,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get imageContextActionsHint =>
-      'Bir görseli önceliklendirmek için sabitleyin veya yazma alanına yeniden ekleyin.';
+      'Görselleri tek tek hariç tutabilir, öncelik için sabitleyebilir veya giriş alanına yeniden ekleyebilirsiniz.';
 
   @override
   String get imageContextEmptyDescription =>
@@ -16283,21 +16615,25 @@ class AppLocalizationsTr extends AppLocalizations {
   String get compressionTrigger => 'Başlangıç';
 
   @override
-  String get compressionTarget => 'Sıkıştır';
+  String get compressionTarget => 'Hedef';
 
   @override
-  String get compressionWindow => 'Özet modeli kapasitesi';
+  String get compressionWindow => 'Otomatik sıkıştırma planlama penceresi';
 
   @override
-  String get compressionRequests => 'Maksimum istek';
-
-  @override
-  String get compressionReference =>
-      'Dünya kitaplarına ve geçmiş belleğe başvur';
+  String get compressionReference => 'Arka plan referanslarını kullan';
 
   @override
   String get compressionReferenceHint =>
-      'Dünya kitapları yalnızca sıkıştırılan geçmişe göre eşleştirilir ve o zamanki bellek anlık görüntüleri kullanılır. Bu yalnızca adları ve kuralları açıklamak içindir — bu olayların yaşandığı veya bir karakterin bunları zaten bildiği anlamına gelmez.';
+      'Özet hazırlanırken asistanın sistem isteminden, sohbetin bu bölümüyle eşleşen dünya kitabı girdilerinden ve o sırada kaydedilen anılardan yararlanılabilir. Olaylar ve her karakterin bildikleri için sohbet geçmişi esas alınır.';
+
+  @override
+  String get compressionInstructionInjections =>
+      'Talimat enjeksiyonlarını referans olarak kullan';
+
+  @override
+  String get compressionInstructionInjectionsHint =>
+      'Bu sohbet için etkinleştirilen talimat kartlarını arka plan referansı olarak özet modeline gönder.';
 
   @override
   String get compressionToolReferences =>
@@ -16355,16 +16691,12 @@ class AppLocalizationsTr extends AppLocalizations {
   }
 
   @override
-  String get compressionBudgetError =>
-      'Bu işlem, mevcut sınırın izin verdiğinden daha fazla model isteği gerektirir, bu nedenle bağlam değişmedi. Maksimum istek sayısını artırın veya daha büyük bağlamı olan bir modele geçin.';
-
-  @override
   String get compressionIncomplete =>
       'Özet kesildi veya reddedildi ve bağlam değişmedi. Çıktı sınırını artırın veya farklı bir model deneyin.';
 
   @override
-  String get compressionReferenceTooLarge =>
-      'Referans materyali bu modelin kapasitesini zaten dolduruyor ve özet için yer kalmıyor. Daha az referans kullanın veya daha büyük bağlamı olan bir modele geçin.';
+  String get compressionProviderContextRejected =>
+      'Sağlayıcı isteğin çok büyük olduğunu bildirdi. Daha büyük bağlam penceresine sahip bir model deneyin.';
 
   @override
   String get compressionReferenceChanged =>
@@ -16372,7 +16704,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get compressionTargetNotReached =>
-      'Sıkıştırmadan sonra bile kullanım otomatik başlangıç noktasının üzerinde kalacaktı, bu nedenle orijinal bağlam korundu. Özeti kısaltın veya Başlangıç değerini artırın.';
+      'Sonucun en az orijinal kadar bağlam kullandığı tahmin ediliyor. Özeti inceleyip kısaltabilirsiniz.';
 
   @override
   String get compressionTemplateMissing =>
@@ -16459,8 +16791,14 @@ class AppLocalizationsTr extends AppLocalizations {
       'Bir kez sıkıştır, sonra başarısız olan yanıtı yeniden dene';
 
   @override
-  String compressionPlannedCalls(int count, int limit) {
-    return 'Tahmini $count istek · sınır $limit, yeniden denemeler dahil';
+  String compressionPlannedCalls(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Yaklaşık $count istek',
+      one: 'Yaklaşık 1 istek',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -16554,9 +16892,6 @@ class AppLocalizationsTr extends AppLocalizations {
   String get compressionTurnUnit => 'tur';
 
   @override
-  String get compressionCallUnit => 'çağrı';
-
-  @override
   String get compressionRequestTimeout => 'Sıkıştırma isteği zaman aşımı';
 
   @override
@@ -16579,10 +16914,15 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get compressionAdvancedHint =>
-      'Referanslar, orijinallere geri bakılıp bakılmayacağı ve istek sınırı';
+      'Arka plan referansları, orijinal geçmiş ve pencere tahminleri';
 
   @override
   String get compressionAutomaticWindow => 'Otomatik';
+
+  @override
+  String compressionSummaryWindowEstimate(String tokens, String source) {
+    return 'Özet modeli penceresi · $tokens token · $source';
+  }
 
   @override
   String get compressionAutoOffHint =>
@@ -16627,7 +16967,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get compressionAutoKeepHint =>
-      'Otomatik sıkıştırma, manuel çalıştırma için seçtiğiniz aralıktan bağımsız olarak her zaman son orijinalleri tutar. Tur sayısı manuel sıkıştırmayla paylaşılır.';
+      'Otomatik sıkıştırma, yer olduğunda son turları korur. Gerektiğinde daha eski turları da özetleyebilir ve geçerli isteği her zaman korur.';
 
   @override
   String get requestBudgetTitle => 'Görsel ve istek bütçeleri';
@@ -16774,6 +17114,33 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get languageDisplayTurkish => 'Türkçe';
+
+  @override
+  String get languageDisplayBangla => 'Bengalce';
+
+  @override
+  String get languageDisplayArabic => 'Arapça';
+
+  @override
+  String get translationLanguageManagerTitle => 'Çeviri dilleri';
+
+  @override
+  String get translationLanguageManagerHint =>
+      'Gösterilecek dilleri açın. Sıralamak için sürükleyin.';
+
+  @override
+  String get translationLanguageManagerShown => 'Menülerde gösterilir';
+
+  @override
+  String get translationLanguageManagerHidden => 'Gizli';
+
+  @override
+  String get translationLanguageManagerKeepOne =>
+      'En az bir çeviri dilini görünür tutun.';
+
+  @override
+  String get translationLanguageManagerSaveFailed =>
+      'Çeviri dilleri kaydedilemedi. Tekrar deneyin.';
 
   @override
   String sideDrawerDeleteConfirmContent(String title) {
@@ -16930,4 +17297,1718 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get responseRetryWithoutImages =>
       'Görseller olmadan yeniden dene (orijinalleri koru)';
+
+  @override
+  String get browserOperationTimeout => 'İşlem zaman aşımı';
+
+  @override
+  String get browserOperationTimeoutDescription =>
+      'Bir tarayıcı komutu için en uzun bekleme süresi. Zaman aşımından sonra asistan sayfa durumunu kontrol edebilir.';
+
+  @override
+  String browserOperationTimeoutSeconds(int seconds) {
+    return '$seconds saniye';
+  }
+
+  @override
+  String get browserErrObservationRequired =>
+      'Devam etmeden önce sayfayı inceleyin; önceki işlem doğrulanmadı.';
+
+  @override
+  String get storageAttachmentRetention => 'Ekleri otomatik temizle';
+
+  @override
+  String get storageAttachmentRetentionDays => 'Temizlemeden önceki gün sayısı';
+
+  @override
+  String get storageAttachmentRetentionImmediately => 'Hemen temizle';
+
+  @override
+  String get storageAttachmentRetentionHint =>
+      'Mesajları veya sohbetleri sildikten sonra artık kullanılmayan görselleri ve dosyaları otomatik olarak kaldır.';
+
+  @override
+  String get storageAttachmentUnused => 'Kullanılmıyor';
+
+  @override
+  String storageAttachmentPending(String date) {
+    return 'Temizlenmeyi bekliyor · $date';
+  }
+
+  @override
+  String storageAttachmentConversations(String names) {
+    return 'Sohbetler: $names';
+  }
+
+  @override
+  String get storageAttachmentCleanUnused => 'Kullanılmayanları temizle';
+
+  @override
+  String get storageAttachmentProtectedHint =>
+      'Hâlâ kullanımda olan dosyalar korunacak.';
+
+  @override
+  String storageAttachmentDeleteConfirm(int count) {
+    return '$count kullanılmayan dosya şimdi silinsin mi? Hâlâ kullanımda olan dosyalar korunacak.';
+  }
+
+  @override
+  String get storageAttachmentRetentionDelayed => 'Daha sonra temizle';
+
+  @override
+  String get storageAttachmentRetentionInvalidDays => '1–3650 gün girin.';
+
+  @override
+  String get storageAttachmentDetailsTitle => 'Dosya bilgisi';
+
+  @override
+  String get compressionCarryTitle =>
+      'Önceki mesajlarınızı da yazdığınız gibi gönder';
+
+  @override
+  String get compressionCarryHint =>
+      'Özete dönüşen kısımdaki kendi mesajlarınız, özetin aktardığı şekliyle değil, yazdığınız gibi modele gönderilir.';
+
+  @override
+  String get compressionCarryCountLabel => 'En son şunları gönder:';
+
+  @override
+  String get compressionCarryUnit => 'mesaj';
+
+  @override
+  String get compressionCarryAll => 'Sığabildiği kadar';
+
+  @override
+  String get compressionCarryAllHint =>
+      'Sabit sayı yok. En yeniden başlayıp neredeyse dolana kadar geriye gider; en eski mesaj çok uzunsa yalnızca başı ve sonu gönderilir.';
+
+  @override
+  String get compressionCarryEarlier =>
+      'Daha önceki özetlerdeki mesajları da geri getir';
+
+  @override
+  String get compressionCarryEarlierHint =>
+      'Daha önce sıkıştırılan kısımlardaki mesajlarınız da dahil edilebilir.';
+
+  @override
+  String compressionCarryPreview(int count, int replyCount, String tokens) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count kullanıcı mesajı',
+      one: '1 kullanıcı mesajı',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      replyCount,
+      locale: localeName,
+      other: '$replyCount yanıt',
+      one: '1 yanıt',
+    );
+    return '$_temp0 · $_temp1 · yaklaşık $tokens token';
+  }
+
+  @override
+  String get compressionCarryNone => 'Özetlenen kısımda size ait mesaj yok.';
+
+  @override
+  String compressionCarryNotFit(int count) {
+    return '$count eski mesaj sığmıyor ve bu sefer gönderilmeyecek.';
+  }
+
+  @override
+  String compressionCarryMoreRows(int count) {
+    return '$count tane daha';
+  }
+
+  @override
+  String get compressionCarryOverBudget =>
+      'Bu mesajlar büyük ihtimalle mevcut modelin kapasitesini aşar. Daha az gönderin veya daha büyük bağlamı olan bir modele geçin.';
+
+  @override
+  String compressionCarryFitAction(int count) {
+    return '$count olarak değiştir';
+  }
+
+  @override
+  String get compressionCarryTruncated =>
+      'Çok uzun; yalnızca başı ve sonu gönderilir';
+
+  @override
+  String get compressionCarryAutoToo =>
+      'Otomatik sıkıştırma da aynısını yapar.';
+
+  @override
+  String get compressionCarryNewChatText =>
+      'Görseller ve dosyalar yeni sohbete taşınmaz; yalnızca metin taşınır.';
+
+  @override
+  String get compressionCarryServerKeeps =>
+      'Bu hizmet, sıkıştırırken önceki mesajlarınızı kendisi saklar.';
+
+  @override
+  String get contextDetailCarried => 'Yazdığınız gibi gönderildi';
+
+  @override
+  String contextDetailCarriedCount(int count) {
+    return 'Önceki $count mesajınız';
+  }
+
+  @override
+  String get contextDetailServerKept => 'Hizmet tarafından saklandı';
+
+  @override
+  String get contextCarriedEditHint =>
+      'Bu yalnızca modele gönderilen metni değiştirir. Sohbetteki orijinal mesaj aynı kalır.';
+
+  @override
+  String get contextCarriedEmpty =>
+      'Bu boş olamaz. Göndermeyi durdurmak için “Göndermeyi durdur”u seçin.';
+
+  @override
+  String get contextCarriedRemove => 'Göndermeyi durdur';
+
+  @override
+  String get contextCarriedRemoveConfirm =>
+      'Bu artık modele gönderilmeyecek. Sohbetteki orijinal mesaj etkilenmez.';
+
+  @override
+  String get contextCarriedSourceDeleted =>
+      'Orijinal silindi; yalnızca bu metin kaldı';
+
+  @override
+  String get compressionCarryReply => 'Yanıtı da dahil et';
+
+  @override
+  String compressionCarryReplyTokens(String tokens) {
+    return '+yaklaşık $tokens';
+  }
+
+  @override
+  String get compressionCarryReplyInKept => 'Yanıt zaten saklanan turlarda';
+
+  @override
+  String get contextCarriedReplyLabel => 'Yanıt';
+
+  @override
+  String get contextCarriedRemoveReply => 'Yanıtı gönderme';
+
+  @override
+  String get imageEditorCancel => 'İptal';
+
+  @override
+  String get imageEditorDone => 'Bitti';
+
+  @override
+  String get imageEditorUndo => 'Geri al';
+
+  @override
+  String get imageEditorRedo => 'Yinele';
+
+  @override
+  String get imageEditorToolCrop => 'Kırp';
+
+  @override
+  String get imageEditorToolDraw => 'Çiz';
+
+  @override
+  String get imageEditorToolText => 'Metin';
+
+  @override
+  String get imageEditorToolMosaic => 'Mozaik';
+
+  @override
+  String get imageEditorPen => 'Kalem';
+
+  @override
+  String get imageEditorArrow => 'Ok';
+
+  @override
+  String get imageEditorEraser => 'Silgi';
+
+  @override
+  String get imageEditorAspectFree => 'Serbest';
+
+  @override
+  String get imageEditorAspectOriginal => 'Orijinal';
+
+  @override
+  String get imageEditorRotate => 'Sola döndür';
+
+  @override
+  String get imageEditorFlip => 'Çevir';
+
+  @override
+  String get imageEditorTextPlain => 'Düz';
+
+  @override
+  String get imageEditorTextOutline => 'Dış çizgi';
+
+  @override
+  String get imageEditorTextFill => 'Dolgu';
+
+  @override
+  String get imageEditorAlign => 'Hizala';
+
+  @override
+  String get imageEditorMosaicBrush => 'Fırça';
+
+  @override
+  String get imageEditorMosaicRect => 'Kutu';
+
+  @override
+  String get imageEditorDiscardTitle => 'Değişiklikler atılsın mı?';
+
+  @override
+  String get imageEditorKeepEditing => 'Düzenlemeye devam et';
+
+  @override
+  String get imageEditorDiscard => 'At';
+
+  @override
+  String get imageEditorProcessFailed => 'Görsel işlenemedi';
+
+  @override
+  String get imageEditorRetry => 'Yeniden dene';
+
+  @override
+  String get imageEditorRemove => 'Kaldır';
+
+  @override
+  String get imageEditorRestore => 'Geri yükle';
+
+  @override
+  String imageEditorColor(String color) {
+    return 'Renk $color';
+  }
+
+  @override
+  String get imageViewerPageEditButton => 'Düzenle';
+
+  @override
+  String get imageViewerPageFileSize => 'Görsel boyutu';
+
+  @override
+  String get compressionCarryModeCount => 'Son mesajlar';
+
+  @override
+  String get compressionCarryListTitle => 'Mesaj önizlemesi';
+
+  @override
+  String get compressionCarrySelectAllReplies => 'Tüm yanıtları seç';
+
+  @override
+  String get compressionCarryDeselectAllReplies =>
+      'Tüm yanıtların seçimini kaldır';
+
+  @override
+  String get compressionCarryPairNotFit =>
+      'Bu mesaj ve yanıtı kalan bütçeyi aşıyor. İkisi de dışarıda bırakılacak.';
+
+  @override
+  String compressionCarryImageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count görsel',
+      one: '1 görsel',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String compressionCarryAttachmentCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ek',
+      one: '1 ek',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get compressionCarryNoText => 'Mesaj metni yok';
+
+  @override
+  String get compressionCarryInvalidCount =>
+      '1 ile 10.000 arasında bir sayı girin.';
+
+  @override
+  String get backupRunningInBackground => 'Yedekleme arka planda devam edecek';
+
+  @override
+  String backupBackgroundFailed(String error) {
+    return 'Arka plan yedeklemesi başarısız oldu: $error';
+  }
+
+  @override
+  String get backupAutoEnableTitle => 'Zamanı geldiğinde otomatik yedekle';
+
+  @override
+  String get backupAutoEnableHint =>
+      'Planlanan saat geldiğinde Kelivo, uygulama ön plandayken yedekleme yapar. Uygulama kapatılır veya sonlandırılırsa yedekleme devam etmez ve kaldığı yerden sürdürülmez; uygulamayı bir sonraki açışınızda süre hâlâ dolmuşsa tek bir tam yedekleme çalışır.';
+
+  @override
+  String get backupAutoDestinationTitle => 'Otomatik yedekleme hedefi';
+
+  @override
+  String get backupAutoDestinationWebDav => 'WebDAV';
+
+  @override
+  String get backupAutoDestinationS3 => 'S3';
+
+  @override
+  String get backupAutoDestinationLocal => 'Yerel klasör';
+
+  @override
+  String get backupAutoNeedRemoteHint => 'Önce WebDAV veya S3 ayarlayın.';
+
+  @override
+  String get backupAutoNeedDestinationHint =>
+      'Önce WebDAV veya S3 ayarlayın ya da bir yerel klasör seçin.';
+
+  @override
+  String get backupAutoNeedFolderHint => 'Önce bir yedekleme klasörü seçin.';
+
+  @override
+  String get backupAutoLocalFolderChoose => 'Klasör seç…';
+
+  @override
+  String get backupAutoLocalFolderChange => 'Klasörü değiştir';
+
+  @override
+  String get backupAutoLocalFolderInvalid =>
+      'Uygulamanın kendi veri dizini dışında bir klasör seçin.';
+
+  @override
+  String get backupAutoLocalRetentionTitle => 'En fazla sakla';
+
+  @override
+  String backupAutoLocalRetentionCount(int count) {
+    return '$count yedek';
+  }
+
+  @override
+  String get backupAutoLocalRetentionUnlimited => 'Sınır yok';
+
+  @override
+  String get backupAutoLocalNow => 'Şimdi bu klasöre yedekle';
+
+  @override
+  String get backupAutoLocalDirUnavailable =>
+      'Seçilen klasöre yazılamıyor. Hâlâ kullanılabilir olduğunu kontrol edin veya başka bir klasör seçin. Kelivo kayıtlı konumu kendi başına değiştirmez.';
+
+  @override
+  String get backupAutoLocalDirPermission =>
+      'Seçilen klasöre yazma izniniz yok. Lütfen klasörü yeniden seçin. Kelivo kayıtlı konumu kendi başına değiştirmez.';
+
+  @override
+  String get backupAutoLocalDirFull =>
+      'Yeterli disk alanı yok, bu yüzden yedekleme tamamlanmadı. Önceki yedekleriniz hâlâ duruyor.';
+
+  @override
+  String get backupAutoLocalBookmarkLost =>
+      'Kelivo seçilen klasöre erişemiyor. Lütfen yeniden seçin. Kayıtlı konum otomatik olarak değiştirilmez.';
+
+  @override
+  String get backupAutoNextTitle => 'Sonraki otomatik yedekleme';
+
+  @override
+  String get backupAutoRememberPasswordTitle =>
+      'Parola bu cihazda hatırlansın mı?';
+
+  @override
+  String get backupAutoRememberPasswordMessage =>
+      'Otomatik yedeklemelerin çalışabilmesi için parolayı bu cihazda hatırla. Parola bu cihazda kalır ve hiçbir zaman yüklenmez.';
+
+  @override
+  String get backupAutoRememberPasswordConfirm => 'Hatırla';
+
+  @override
+  String get backupAutoRememberPasswordDecline => 'Şimdi değil';
+
+  @override
+  String get backupAutoRememberDeclined =>
+      'Otomatik yedekleme açılmadı. Zamanı geldiğinde yine hatırlatma alacaksınız.';
+
+  @override
+  String get backupAutoKeychainUnavailable =>
+      'Kelivo, yedekleme parolası için sistem anahtarlığına erişemiyor. Yine de manuel olarak yedekleme yapabilirsiniz.';
+
+  @override
+  String get backupAutoSucceeded => 'Otomatik yedekleme tamamlandı';
+
+  @override
+  String backupAutoFailed(String error) {
+    return 'Otomatik yedekleme başarısız oldu: $error';
+  }
+
+  @override
+  String get backupAutoFailedPassword =>
+      'Otomatik yedekleme başarısız oldu: parola yanlış.';
+
+  @override
+  String get backupReminderSidebarSubtitleAutoFailed =>
+      'Otomatik yedekleme tamamlanmadı. Ağı kontrol edin veya elle yedekleyin.';
+
+  @override
+  String get backupEncryptionOnHintRemembered =>
+      'Yedekler şifrelenir. Parola bu cihazda kayıtlı.';
+
+  @override
+  String get backupRememberPasswordOnDevice => 'Parolayı bu cihazda hatırla';
+
+  @override
+  String get backupForgetDisablesAutomaticHint =>
+      'Bunu kapatmak otomatik yedeklemeyi de kapatır.';
+
+  @override
+  String get backupManualPasswordHint =>
+      'Şifreli yedekler için belirlediğiniz parolayı girin.';
+
+  @override
+  String get backupManualPasswordNotSaved =>
+      'Parola bu cihazda kaydedilemedi. Bu yedekleme devam edecek.';
+
+  @override
+  String get backupEncryptionChangePassword => 'Yedek parolasını değiştir';
+
+  @override
+  String get backupMacKeychainNeedsUnlock =>
+      'macOS oturum açma anahtarlığının kilidini açamadı. Anahtar Zinciri Erişimi\'ni açın, “oturum açma” anahtarlığının kilidini açın ve ardından Kelivo\'da tekrar deneyin.';
+
+  @override
+  String get backupMacOpenKeychainAccess => 'Anahtar Zinciri Erişimi\'ni aç';
+
+  @override
+  String get backupMacKeychainAccessDenied =>
+      'macOS yedek parolasına erişimi reddetti. Bir sistem istemi görünürse Kelivo\'nun erişmesine izin verin. Ayrıca Anahtar Zinciri Erişimi\'nde varsayılan anahtar zincirini ve parola öğesinin izinlerini kontrol edebilirsiniz.';
+
+  @override
+  String get worldBookGroupActions => 'Grup işlemleri';
+
+  @override
+  String get worldBookGroupLabel => 'Grup';
+
+  @override
+  String get worldBookOrder => 'Enjeksiyon sırasını düzenle';
+
+  @override
+  String worldBookGroupSelectedBooks(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count kitap seçildi',
+      one: '1 kitap seçildi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get worldBookGroupUngrouped => 'Gruplanmamış';
+
+  @override
+  String get worldBookGroupNew => 'Yeni grup';
+
+  @override
+  String get worldBookGroupName => 'Grup adı';
+
+  @override
+  String get worldBookGroupNameInvalid => 'Benzersiz bir grup adı girin.';
+
+  @override
+  String get worldBookGroupRename => 'Grubu yeniden adlandır';
+
+  @override
+  String get worldBookGroupDelete => 'Grubu sil';
+
+  @override
+  String worldBookGroupDeleteMessage(String group) {
+    return '“$group” içindeki kitaplar Gruplanmamış bölümüne taşınacak.';
+  }
+
+  @override
+  String get worldBookGroupMove => 'Gruba taşı';
+
+  @override
+  String get worldBookGroupSelectBooks => 'Dünya Kitaplarını seç';
+
+  @override
+  String get worldBookGroupSaveFailed =>
+      'Değişiklikleriniz kaydedilemedi. Tekrar deneyin.';
+
+  @override
+  String get worldBookGroupSelectAll => 'Gruptakilerin tümünü seç';
+
+  @override
+  String get worldBookGroupClearSelection => 'Grup seçimini temizle';
+
+  @override
+  String get sidebarSettingsTitle => 'Kenar çubuğu';
+
+  @override
+  String get sidebarCustomize => 'Kenar çubuğunu özelleştir';
+
+  @override
+  String get sidebarLayoutTitle => 'Düzen';
+
+  @override
+  String get sidebarPresetCurrent => 'Mevcut düzen';
+
+  @override
+  String get sidebarPresetNavigation => 'Gezinme listesi';
+
+  @override
+  String get sidebarPresetAssistantBottom => 'Asistan altta';
+
+  @override
+  String get sidebarPresetAllTop => 'Hepsi üstte';
+
+  @override
+  String get sidebarPresetCustom => 'Özel düzen';
+
+  @override
+  String get sidebarReorderTitle => 'Blokları düzenle';
+
+  @override
+  String get sidebarReorderHint =>
+      'Sohbet listesinin üstüne veya altına sürükleyin';
+
+  @override
+  String get sidebarReorderHandle => 'Yeniden sırala';
+
+  @override
+  String get sidebarBlockUser => 'Kullanıcı çubuğu';
+
+  @override
+  String get sidebarBlockSearch => 'Arama çubuğu';
+
+  @override
+  String get sidebarBlockEntries => 'Girişler';
+
+  @override
+  String get sidebarBlockAssistant => 'Asistan';
+
+  @override
+  String get sidebarBlockConversations => 'Sohbet listesi';
+
+  @override
+  String get sidebarBlockTop => 'Üst';
+
+  @override
+  String get sidebarBlockBottom => 'Alt';
+
+  @override
+  String get sidebarDisplayAs => 'Görünüm';
+
+  @override
+  String get sidebarStyleList => 'Liste';
+
+  @override
+  String get sidebarStyleIcons => 'Simgeler';
+
+  @override
+  String get sidebarVisibilityShow => 'Göster';
+
+  @override
+  String get sidebarMore => 'Daha fazla';
+
+  @override
+  String get sidebarVisibilityHidden => 'Gizle';
+
+  @override
+  String get sidebarLocationEntries => 'Giriş listesi';
+
+  @override
+  String get sidebarLocationSearch => 'Aramanın yanında';
+
+  @override
+  String get sidebarLocationUserBar => 'Kullanıcı çubuğu simgeleri';
+
+  @override
+  String get sidebarLocationMore => 'Daha fazla içinde';
+
+  @override
+  String get sidebarLocationHidden => 'Kenar çubuğundan gizlendi';
+
+  @override
+  String get sidebarLocationRail => 'Sol simge çubuğu';
+
+  @override
+  String get sidebarMenuShow => 'Kenar çubuğunda göster';
+
+  @override
+  String get sidebarMenuMore => 'Daha fazla bölümüne taşı';
+
+  @override
+  String get sidebarMenuHide => 'Kenar çubuğundan gizle';
+
+  @override
+  String get sidebarHideCustomize => 'Daha fazla bölümünden gizle';
+
+  @override
+  String get sidebarShowCustomizeInMore =>
+      'Daha fazla bölümünde Kenar çubuğunu özelleştir\'i göster';
+
+  @override
+  String get sidebarShowCustomizeInMoreHint =>
+      'Buradan her zaman değiştirebilirsiniz';
+
+  @override
+  String get sidebarHideSingleAssistant =>
+      'Yalnızca bir asistan varsa asistan satırını gizle';
+
+  @override
+  String get sidebarHideSingleAssistantHint =>
+      'Asistan satırı varsayılan olarak gösterilir';
+
+  @override
+  String get sidebarRestoreDefaults => 'Varsayılanlara geri dön';
+
+  @override
+  String get sidebarOpenSettings => 'Kenar çubuğu ayarlarını aç…';
+
+  @override
+  String get creationTitle => 'Oluştur';
+
+  @override
+  String get creationTopics => 'Konular';
+
+  @override
+  String get creationNewTopic => 'Yeni konu';
+
+  @override
+  String get creationNameAfterSending => 'İlk istemden sonra adlandırılır';
+
+  @override
+  String get creationPromptTitle =>
+      'İstemcinizin başlangıcını başlık olarak kullanır';
+
+  @override
+  String get creationSearchTopics => 'Konularda ve istemlerde ara';
+
+  @override
+  String get creationTopicsEmpty =>
+      'İlk isteminizden sonra konular burada görünür';
+
+  @override
+  String get creationNaming => 'Konu adlandırılıyor…';
+
+  @override
+  String get creationRenameTopic => 'Konuyu yeniden adlandır';
+
+  @override
+  String get creationDeleteTopic => 'Konuyu sil';
+
+  @override
+  String get creationDeleteTopicBody =>
+      'Bu konu ve tüm oluşturulanlar silinsin mi?';
+
+  @override
+  String get creationImage => 'Görsel';
+
+  @override
+  String get creationVideo => 'Video';
+
+  @override
+  String get creationImagePrompt => 'Oluşturulacak görseli tanımlayın';
+
+  @override
+  String get creationVideoPrompt => 'Oluşturulacak videoyu tanımlayın';
+
+  @override
+  String get creationNewImagePrompt =>
+      'Yeni konu başlatmak için bir görsel tanımlayın';
+
+  @override
+  String get creationNewVideoPrompt =>
+      'Yeni konu başlatmak için bir video tanımlayın';
+
+  @override
+  String get creationSelectModel => 'Model seç';
+
+  @override
+  String get creationSearchModels => 'Model veya sağlayıcı ara';
+
+  @override
+  String get creationNoModelTitle => 'Henüz görsel veya video modeli yok';
+
+  @override
+  String get creationNoModelBody =>
+      'Oluşturma, Sağlayıcılar bölümünde yapılandırılmış görsel ve video modellerini kullanır. Bir abonelikle oturum açın veya fal ya da başka bir sağlayıcı için API anahtarı girin.';
+
+  @override
+  String get creationEmptyTitle => 'Bir fikirle başlayın';
+
+  @override
+  String get creationEmptyBody =>
+      'Ne oluşturmak istediğinizi açıklayın. İlk istemi göndermek, sonuç ve sonraki düzenlemeler için bir konu başlatır.';
+
+  @override
+  String get creationAddReference => 'Referans görsel ekle';
+
+  @override
+  String get creationReferenceTooLarge =>
+      'Referans görsellerin toplam boyutu 20 MB veya daha az olmalıdır.';
+
+  @override
+  String get creationApiProtocol => 'Oluşturma API protokolü';
+
+  @override
+  String get creationApiProtocolHelp =>
+      'Otomatik, sağlayıcının API\'sini kullanır. Özel bir ağ geçidi için belgelerinde listelenen protokolü seçin.';
+
+  @override
+  String get creationAspectRatio => 'En-boy oranı';
+
+  @override
+  String get creationCountLabel => 'Görsel sayısı';
+
+  @override
+  String get creationDuration => 'Süre';
+
+  @override
+  String creationDurationSeconds(int seconds) {
+    String _temp0 = intl.Intl.pluralLogic(
+      seconds,
+      locale: localeName,
+      other: '$seconds saniye',
+      one: '$seconds saniye',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get creationResolution => 'Çözünürlük';
+
+  @override
+  String get creationFirstLastFrame => 'İlk ve son kareler';
+
+  @override
+  String get creationFirstFrame => 'İlk kare';
+
+  @override
+  String get creationLastFrame => 'Son kare';
+
+  @override
+  String get creationBothFramesRequired => 'Hem ilk hem de son kareyi seçin.';
+
+  @override
+  String get creationFirstFrameRequired =>
+      'Bir ilk kare seçin. Son kare isteğe bağlıdır.';
+
+  @override
+  String get creationFirstFrameOnly => 'Bu model bir ilk kareyi destekler.';
+
+  @override
+  String get creationImageModels => 'Görsel modelleri';
+
+  @override
+  String get creationVideoModels => 'Video modelleri';
+
+  @override
+  String get creationPlayVideo => 'Videoyu oynat';
+
+  @override
+  String get creationPauseVideo => 'Videoyu duraklat';
+
+  @override
+  String get creationMuteVideo => 'Sessize al';
+
+  @override
+  String get creationUnmuteVideo => 'Sesi aç';
+
+  @override
+  String get creationOpenVideo => 'Sistem oynatıcısında aç';
+
+  @override
+  String get creationFullScreen => 'Tam ekran';
+
+  @override
+  String get creationExitFullScreen => 'Tam ekrandan çık';
+
+  @override
+  String get creationSaveVideo => 'Videoyu kaydet';
+
+  @override
+  String get creationParameters => 'Oluşturma seçenekleri';
+
+  @override
+  String get creationAuto => 'Otomatik';
+
+  @override
+  String get creationGenerate => 'Oluştur';
+
+  @override
+  String get creationWaitingImage => 'Görsel oluşturuluyor';
+
+  @override
+  String get creationWaitingVideo => 'Video hazırlanıyor';
+
+  @override
+  String get creationDownloading => 'İndiriliyor';
+
+  @override
+  String get creationFailed => 'Oluşturma başarısız';
+
+  @override
+  String get creationInterrupted => 'Uygulama kapanırken oluşturma kesildi';
+
+  @override
+  String get creationCancelled => 'İptal edildi';
+
+  @override
+  String get creationPartial => 'Bazı sonuçlar kaydedilemedi';
+
+  @override
+  String get creationRetry => 'Tekrar dene';
+
+  @override
+  String get creationCopyPrompt => 'İstemi kopyala';
+
+  @override
+  String get creationSaveImage => 'Görseli kaydet';
+
+  @override
+  String get creationCopyImage => 'Görseli kopyala';
+
+  @override
+  String get creationShare => 'Paylaş';
+
+  @override
+  String get creationDeleteItem => 'Oluşturmayı sil';
+
+  @override
+  String get creationDeleteItemBody => 'Bu oluşturma silinsin mi?';
+
+  @override
+  String get creationActionFailed => 'İşlem tamamlanamadı';
+
+  @override
+  String get creationOptionSaved => 'Kaydedildi';
+
+  @override
+  String get creationOptionCopied => 'Kopyalandı';
+
+  @override
+  String get backupScopeCreations => 'Oluşturmalar';
+
+  @override
+  String creationQueuePosition(int count) {
+    return 'Sırada · önünde $count görev var';
+  }
+
+  @override
+  String creationImagesCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count görsel',
+      one: '1 görsel',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String creationGenerationCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count üretim',
+      one: '1 üretim',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String creationWorksCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count oluşturma',
+      one: '1 oluşturma',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String creationTopicCount(int count) {
+    return 'Konular $count';
+  }
+
+  @override
+  String get creationMoreOptions => 'Diğer seçenekler';
+
+  @override
+  String get creationImageSize => 'Görsel boyutu';
+
+  @override
+  String get creationQuality => 'Kalite';
+
+  @override
+  String get creationLowQuality => 'Düşük';
+
+  @override
+  String get creationMediumQuality => 'Orta';
+
+  @override
+  String get creationHighQuality => 'Yüksek';
+
+  @override
+  String get creationNegativePrompt => 'Negatif istem';
+
+  @override
+  String get creationSeed => 'Tohum';
+
+  @override
+  String get creationTransparentBackground => 'Şeffaf arka plan';
+
+  @override
+  String get creationOutputFormat => 'Çıktı formatı';
+
+  @override
+  String get creationExtraJson => 'Ek parametreler (JSON)';
+
+  @override
+  String get creationExtraJsonHint =>
+      'Bu değerler her istekle birlikte gönderilir. Diğer seçenekler bölümünde geçici olarak değiştirebilirsiniz.';
+
+  @override
+  String get creationModelKnown =>
+      'Varsayılanlar Kelivo’nun yerleşik model verilerinden gelir. Değişiklikler yalnızca bu modeli etkiler.';
+
+  @override
+  String get creationModelUnknown =>
+      'Kelivo yaygın parametreleri doldurdu. Sağlayıcınızın belgelerine göre bunları düzenleyebilirsiniz.';
+
+  @override
+  String get creationMaxPerRequest => 'İstek başına en fazla';
+
+  @override
+  String get creationMaxPerRequestHelp =>
+      'Daha büyük gruplar birden çok isteğe bölünür ve tek bir grupta tutulur.';
+
+  @override
+  String get creationReferenceLimit => 'Referans görseller';
+
+  @override
+  String get creationReferenceLimitHelp =>
+      'Bu model için referans görselleri ve düzenlemeyi gizlemek üzere sıfıra ayarlayın.';
+
+  @override
+  String get creationRatioHelp =>
+      'Oluştur bölümünde kullanılabilir oranları seçin. Otomatik, modelin karar vermesini sağlar.';
+
+  @override
+  String get creationMediaOther => 'Diğer seçenekler';
+
+  @override
+  String get creationEnableOptionHelp =>
+      'Bu kontrolü Diğer seçenekler bölümünde göster.';
+
+  @override
+  String get creationImageTypeHelp =>
+      'Görsel modelleri Oluştur bölümünde ve Görsel Oluşturma aracında görünür.';
+
+  @override
+  String get creationVideoTypeHelp =>
+      'Video modelleri Oluştur bölümünde görünür.';
+
+  @override
+  String get creationFalKeyHint =>
+      'fal.ai › Dashboard › API Keys bölümünde bir anahtar oluşturun';
+
+  @override
+  String get creationFalCatalogHint =>
+      'fal’ın canlı kataloğuna göz atmak için Getir’i kullanın veya uç nokta kimliğiyle model eklemek için + simgesini kullanın.';
+
+  @override
+  String falUnsupportedInput(String field) {
+    return 'Bu model, Creation\'ın sağlayamadığı $field alanını gerektiriyor.';
+  }
+
+  @override
+  String get falUnsupportedOutput =>
+      'Bu model, Creation\'ın kaydedebileceği bir görsel veya video döndürmüyor.';
+
+  @override
+  String get falAdditionalSettings => 'Ek Ayarlar';
+
+  @override
+  String get falRefreshAdditionalSettings => 'Model ayarlarını yenile';
+
+  @override
+  String get falNoPublishedSettings => 'fal bu uç nokta için ayar yayımlamadı.';
+
+  @override
+  String get falNoAdditionalSettings => 'Bu modelin ek ayarı yok.';
+
+  @override
+  String get falCopyDraftId => 'Taslak kimliğini kopyala';
+
+  @override
+  String get falOptionalPrompt => 'İstem (isteğe bağlı)';
+
+  @override
+  String get falWatermark => 'Filigran';
+
+  @override
+  String get falSyncMode => 'Senkron Modu';
+
+  @override
+  String get falSafetyChecker => 'Güvenlik Denetleyicisini Etkinleştir';
+
+  @override
+  String get falCheckingModel => 'Model kontrol ediliyor…';
+
+  @override
+  String get falInvalidEndpointId =>
+      'Bir fal uç noktası ID\'si girin, örneğin fal-ai/flux/dev.';
+
+  @override
+  String get creationOptionalTitle => 'Bu çalışmayı adlandırın (isteğe bağlı)';
+
+  @override
+  String get falCatalogMore => 'Daha fazla model yükle';
+
+  @override
+  String get falCatalogNoMatch => 'Eşleşen görsel veya video modeli yok';
+
+  @override
+  String falCatalogLoadFailed(String error) {
+    return 'fal model verileri yüklenemedi ($error)';
+  }
+
+  @override
+  String get creationFalModelId => 'model ID';
+
+  @override
+  String get creationSelectPlatformImage => 'Görsel seç';
+
+  @override
+  String get creationPlatformOptions => 'Modele özgü seçenekler';
+
+  @override
+  String get creationParameterRequired => 'Gerekli';
+
+  @override
+  String get creationBackground => 'Arka plan';
+
+  @override
+  String get creationOpaqueBackground => 'Opak';
+
+  @override
+  String get creationTransparentOption => 'Şeffaf';
+
+  @override
+  String get creationChatModelBadge => 'Sohbet modeli';
+
+  @override
+  String get creationCommonOptions => 'Genel seçenekler';
+
+  @override
+  String get creationNoCommonOptions => 'Bu modelin genel seçeneği yok.';
+
+  @override
+  String get creationGallery => 'Tüm oluşturmalar';
+
+  @override
+  String get creationFilterAll => 'Tümü';
+
+  @override
+  String get creationFilterImages => 'Görseller';
+
+  @override
+  String get creationFilterVideos => 'Videolar';
+
+  @override
+  String get creationFilterFavorites => 'Favoriler';
+
+  @override
+  String get creationSearchGallery => 'İstem veya konu ara';
+
+  @override
+  String get creationGalleryEmpty => 'Henüz oluşturma yok';
+
+  @override
+  String get creationFavoritesEmpty => 'Henüz favori yok';
+
+  @override
+  String get creationGalleryNoResults => 'Eşleşen oluşturma yok';
+
+  @override
+  String get creationShowInTopic => 'Konuda göster';
+
+  @override
+  String get creationFavorite => 'Favorilere ekle';
+
+  @override
+  String get creationUnfavorite => 'Favorilerden çıkar';
+
+  @override
+  String get creationFavorited => 'Favorilere eklendi';
+
+  @override
+  String get creationUnfavorited => 'Favorilerden çıkarıldı';
+
+  @override
+  String get creationTopicDisplay => 'Konu görünümü';
+
+  @override
+  String get creationCoversAndTitles => 'Kapaklar ve başlıklar';
+
+  @override
+  String get creationCoversOnly => 'Yalnızca kapaklar';
+
+  @override
+  String get creationTopicList => 'Liste';
+
+  @override
+  String get creationAutoTitle => 'Konuları otomatik adlandır';
+
+  @override
+  String get creationAutoTitleHelp =>
+      'İlk istemden yola çıkarak konuyu adlandırmak için başlık özetleme modelini kullan.';
+
+  @override
+  String get creationAutoTitleOffHelp =>
+      'Başlık olarak ilk istemin başlangıcını kullan.';
+
+  @override
+  String get creationCustomCount => 'Özel';
+
+  @override
+  String get creationCustomCountMaximum => 'En fazla 16';
+
+  @override
+  String creationRequestSplit(String model, int limit, int requests) {
+    return '$model istek başına en fazla $limit görsel oluşturur. $requests istek aynı grupta birleştirilecek.';
+  }
+
+  @override
+  String get creationNoModelPlaceholder =>
+      'Önce medya oluşturabilen bir model ekleyin';
+
+  @override
+  String get creationConnectChatGPT => 'ChatGPT\'de oturum aç';
+
+  @override
+  String get creationConnectGrok => 'Grok\'ta oturum aç';
+
+  @override
+  String get creationConfigureFal => 'fal\'ı ayarla';
+
+  @override
+  String get creationOtherProviders => 'Diğer sağlayıcılar';
+
+  @override
+  String get creationChooseReferenceFile => 'Dosya seç…';
+
+  @override
+  String get creationChooseFromLibrary => 'Fotoğraflardan seç';
+
+  @override
+  String get creationTakeReferencePhoto => 'Fotoğraf çek';
+
+  @override
+  String get creationPasteReference => 'Görsel yapıştır';
+
+  @override
+  String get creationRecentImages => 'Son görseller';
+
+  @override
+  String get creationReferenceDrop =>
+      'Referans görselleri eklemek için bırakın';
+
+  @override
+  String get creationFirstFrameDrop => 'İlk kare olarak ayarlamak için bırakın';
+
+  @override
+  String get creationReferenceDropHint =>
+      'Görselleri doğrudan Oluştur sayfasına da sürükleyebilirsiniz.';
+
+  @override
+  String get creationNoClipboardImage => 'Panoda görsel yok';
+
+  @override
+  String get creationReferenceAdded => 'Referanslara eklendi';
+
+  @override
+  String get creationReferenceAlreadyAdded => 'Zaten referanslarınızda';
+
+  @override
+  String creationReferenceLimitReached(int count) {
+    return 'Bu model en fazla $count referans görseli kabul eder.';
+  }
+
+  @override
+  String creationReferenceUnsupported(String model) {
+    return '$model referans görselleri desteklemiyor';
+  }
+
+  @override
+  String get creationReferenceIgnored =>
+      'Referanslarınız taslakta kalır. Bunları kabul eden bir model kullanabilir.';
+
+  @override
+  String get creationRecentChat => 'Sohbet';
+
+  @override
+  String get creationRecentCreation => 'Oluştur';
+
+  @override
+  String creationReferenceSlotsAvailable(int count) {
+    return '$count tane daha seçebilirsiniz';
+  }
+
+  @override
+  String get creationTapToSelect => 'Seçmek için bir görsele dokunun';
+
+  @override
+  String creationSelectedImages(int count) {
+    return '$count seçildi';
+  }
+
+  @override
+  String creationAddSelected(int count) {
+    return 'Ekle ($count)';
+  }
+
+  @override
+  String get creationRecentEmpty => 'Son görsel yok';
+
+  @override
+  String get creationEditImage => 'Görseli düzenle';
+
+  @override
+  String get creationUseReference => 'Referans olarak kullan';
+
+  @override
+  String get creationEditReference => 'Bu görselle düzenleniyor';
+
+  @override
+  String get creationEditPrompt => 'Ne değişmeli?';
+
+  @override
+  String get creationEditPromptExample =>
+      'Örneğin, plaj arka planı kullan ve kişiyi ve ışığı koru';
+
+  @override
+  String get creationEditOriginalRatio => 'Orijinal oran';
+
+  @override
+  String get creationEditNewGroup => 'Yeni bir grup oluştur';
+
+  @override
+  String get creationEditHelp =>
+      'Düzenleme bu konuda yeni bir grup olarak görünür.';
+
+  @override
+  String get creationEditStarted =>
+      'Düzenleme başladı. Sonuç bu konunun altında görünecek.';
+
+  @override
+  String get creationEditedResult => 'Düzenlenmiş sonuç';
+
+  @override
+  String get creationEditedFrom => 'Şuradan düzenlendi';
+
+  @override
+  String get creationRepeat => 'Tekrar oluştur';
+
+  @override
+  String get creationDeleteBatch => 'Grubu sil';
+
+  @override
+  String creationDeleteBatchBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Bu grup ve $count dosyası bu cihazdan silinsin mi?',
+      one: 'Bu grup ve dosyası bu cihazdan silinsin mi?',
+      zero: 'Bu üretim kaydı bu cihazdan silinsin mi?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get creationRequestDetails => 'İstek ayrıntıları';
+
+  @override
+  String get creationNoRequestDetails => 'İstek ayrıntısı yok.';
+
+  @override
+  String creationReferenceSummary(int count, int limit) {
+    return 'Referanslar $count / $limit';
+  }
+
+  @override
+  String get creationPrevious => 'Önceki oluşturma';
+
+  @override
+  String get creationNext => 'Sonraki oluşturma';
+
+  @override
+  String get creationWaitingSketch => 'Kompozisyon çiziliyor';
+
+  @override
+  String get creationWaitingDetails => 'Ayrıntılar işleniyor';
+
+  @override
+  String get creationWaitingFinish => 'Görsel tamamlanıyor';
+
+  @override
+  String get creationWaitingVideoMotion => 'Hareket planlanıyor';
+
+  @override
+  String get creationWaitingVideoFrames => 'Kareler oluşturuluyor';
+
+  @override
+  String get creationWaitingVideoFinish => 'Video tamamlanıyor';
+
+  @override
+  String get creationWaitingLong => 'Biraz daha uzun sürüyor';
+
+  @override
+  String get creationSuggestionPoster => 'Minimalist bir konser afişi tasarla';
+
+  @override
+  String get creationSuggestionLandscape => 'Şafakta bir dağ köyü resmet';
+
+  @override
+  String get creationSuggestionProduct =>
+      'Yumuşak gün ışığında seramik bir fincan fotoğrafla';
+
+  @override
+  String get creationSuggestionIllustration =>
+      'Yıldızlı gökyüzü altında bir tilki çiz';
+
+  @override
+  String get creationSuggestionRoom => 'Sıcak ahşaplı bir okuma köşesi çiz';
+
+  @override
+  String get creationSuggestionSticker =>
+      'Eğlenceli bitki çıkartmalarından bir set yap';
+
+  @override
+  String get creationSuggestionMotion =>
+      'Yağmurlu bir bahçeye yavaşça yaklaşan kamera';
+
+  @override
+  String get creationSuggestionOcean => 'Gün batımında sahile vuran dalgalar';
+
+  @override
+  String get creationWaitingDraft => 'İlk taslak oluşturuluyor';
+
+  @override
+  String get creationWaitingScene => 'Sahne hazırlanıyor';
+
+  @override
+  String get creationWaitingVideoRendering => 'Hareket işleniyor';
+
+  @override
+  String get creationWaitingVideoComposite => 'Video birleştiriliyor';
+
+  @override
+  String get creationWaitingNearlyDone => 'Neredeyse bitti';
+
+  @override
+  String creationUseGroupReferences(int count) {
+    return 'Tümünü ($count) referans olarak kullan';
+  }
+
+  @override
+  String get creationDownloadFailed => 'İndirme başarısız oldu';
+
+  @override
+  String get creationAutomaticRetry => 'Otomatik yeniden deneme';
+
+  @override
+  String get creationNoAutomaticRetry => 'Manuel yeniden deneme';
+
+  @override
+  String get creationRetryHistory => 'Yeniden deneme geçmişi';
+
+  @override
+  String get creationLoggedRequest => 'İstek meta verileri';
+
+  @override
+  String get creationLoggedResponse => 'Yanıt meta verileri';
+
+  @override
+  String get creationDefaultImage => 'Görsel oluşturma modeli';
+
+  @override
+  String get creationDefaultImageHelp =>
+      'Oluşturma bölümündeki görseller ve sohbetteki görsel oluşturma aracı için kullanılır.';
+
+  @override
+  String get creationDefaultVideo => 'Video oluşturma modeli';
+
+  @override
+  String get creationDefaultVideoHelp =>
+      'Oluşturma bölümündeki video modunda kullanılır.';
+
+  @override
+  String get creationDefaultEnhance => 'İstem geliştirme modeli';
+
+  @override
+  String get creationDefaultEnhanceHelp =>
+      'Oluşturma bölümündeki istemleri geliştirir. Bu model görsel girişini destekliyorsa referans görseller de gönderilir.';
+
+  @override
+  String creationEnhanceTemplateVariable(String variable) {
+    return 'Geçerli oluşturma istemi için $variable kullanın.';
+  }
+
+  @override
+  String get creationLocalToolTitle => 'Görsel oluşturma';
+
+  @override
+  String get creationLocalToolHelp =>
+      'Bu asistanın sohbette varsayılan görsel oluşturma modelini kullanarak görsel çizmesine veya düzenlemesine izin verin.';
+
+  @override
+  String creationStorageFileCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count dosya',
+      one: '1 dosya',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get creationSelectDefaultImage => 'Varsayılan bir görsel modeli seçin';
+
+  @override
+  String get creationConfigureImageProvider =>
+      'Önce Sağlayıcılar bölümünde bir görsel modeli ekleyin veya etkinleştirin.';
+
+  @override
+  String get displayChatImagesAtToolCall =>
+      'Oluşturulan görselleri araç çağrısında göster';
+
+  @override
+  String get displayChatImageInfo => 'Oluşturulan görsel ayrıntılarını göster';
+
+  @override
+  String get displayChatImageLink => 'Oluşturma bağlantısını göster';
+
+  @override
+  String get creationLocalToolNeedsModel =>
+      'Önce Varsayılan modeller bölümünde bir görsel oluşturma modeli seçin.';
+
+  @override
+  String creationChatSource(String title) {
+    return 'Sohbet · $title';
+  }
+
+  @override
+  String get creationSendToChat => 'Sohbete gönder';
+
+  @override
+  String get creationShowInConversation => 'Sohbette göster';
+
+  @override
+  String get creationShowInCreation => 'Oluşturma bölümünde göster';
+
+  @override
+  String get creationChatCancelled => 'Görsel oluşturma iptal edildi';
+
+  @override
+  String get creationChatRegenerate => 'Yeniden oluştur';
+
+  @override
+  String get creationChatImageUnavailable => 'Görsel kullanılamıyor';
+
+  @override
+  String creationChatResultCaption(int count, String model, String ratio) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count görsel oluşturuldu',
+      one: '1 görsel oluşturuldu',
+    );
+    return '$_temp0 · $model · $ratio';
+  }
+
+  @override
+  String get creationEnhance => 'İstemi geliştir';
+
+  @override
+  String get creationEnhanceLoading => 'İstem yeniden yazılıyor…';
+
+  @override
+  String get creationEnhanceResult => 'Yeniden yazılmış istem';
+
+  @override
+  String get creationEnhanceOriginal => 'Orijinal';
+
+  @override
+  String get creationEnhanceAgain => 'Başka dene';
+
+  @override
+  String get creationEnhanceApply => 'Değiştir';
+
+  @override
+  String get creationEnhanceNeedsModel =>
+      'Varsayılan modeller bölümünden bir istem geliştirme modeli seçin.';
+
+  @override
+  String get creationStorageHint =>
+      'Oluşturma tarafından saklanan görseller, videolar, küçük resimler ve referans görselleri.';
+
+  @override
+  String get creationStorageDate =>
+      'Bu tarihe kadar olan oluşturmaları temizle';
+
+  @override
+  String creationStorageConfirm(String date) {
+    return '$date tarihine kadar tamamlanmış üretimler, görselleri, videoları ve referans kopyalarıyla birlikte silinsin mi? Bu üretimlerden gelen görseller sohbette de görüntülenemeyecek.';
+  }
+
+  @override
+  String creationStorageRemoved(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count üretim temizlendi',
+      one: '1 üretim temizlendi',
+      zero: 'Temizlenecek üretim yok',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get creationStorageClean => 'Tarihe göre temizle';
+
+  @override
+  String get creationDisplayAndGames => 'Görünüm ve bekleme oyunları';
+
+  @override
+  String get creationWaitGame => 'Bekleme oyunu';
+
+  @override
+  String get creationGameRandom => 'Rastgele';
+
+  @override
+  String get creationGameOff => 'Kapalı';
+
+  @override
+  String get creationGameSnake => 'Yılan';
+
+  @override
+  String get creationGameBrick => 'Tuğla Kırma';
+
+  @override
+  String get creationGameSnakeControls =>
+      'Yılan. Yön vermek için ok tuşlarını, W A S D tuşlarını veya kaydırmayı kullanın. Duraklatmak veya devam etmek için Space, çıkmak için Escape tuşuna basın.';
+
+  @override
+  String get creationGameBrickControls =>
+      'Tuğla Kırma. Raketi sürükleyin veya hareket ettirmek için Sol, Sağ, A ya da D tuşlarını basılı tutun. Duraklatmak veya devam etmek için Space, çıkmak için Escape tuşuna basın.';
+
+  @override
+  String creationGameDuringImage(String game) {
+    return 'Görsel oluşturulurken $game oyna';
+  }
+
+  @override
+  String creationGameDuringVideo(String game) {
+    return 'Video oluşturulurken $game oyna';
+  }
+
+  @override
+  String creationGameScore(int score) {
+    return 'Puan $score';
+  }
+
+  @override
+  String creationGamePaused(int score) {
+    return 'Duraklatıldı · $score';
+  }
+
+  @override
+  String creationGameEnded(int score) {
+    return 'Oyun bitti · $score';
+  }
+
+  @override
+  String creationGameCompleted(int score) {
+    return 'Oluşturma hazır · $score';
+  }
+
+  @override
+  String get creationNoSelectableModels => 'Kullanılabilir model yok';
+
+  @override
+  String get creationNoMatchingTopics => 'Eşleşen konu yok';
+
+  @override
+  String creationAllTopicCount(int count) {
+    return 'Tüm konular $count';
+  }
+
+  @override
+  String get creationNoImageModels => 'Henüz görsel oluşturma modeli yok';
+
+  @override
+  String get creationNoVideoModels => 'Henüz video oluşturma modeli yok';
+
+  @override
+  String get creationFrameSources =>
+      'Son görsellerden, dosyalardan veya panodan ekle';
+
+  @override
+  String creationFrameModelFirstOnly(String model) {
+    return '$model yalnızca ilk kareyi destekler';
+  }
+
+  @override
+  String get creationSubscriptionLogin => 'Abonelik';
+
+  @override
+  String creationModelReferenceLimit(int count) {
+    return 'En fazla $count referans';
+  }
+
+  @override
+  String get creationTextOnlyImage => 'Metinden görsel';
+
+  @override
+  String get creationTextOnlyVideo => 'Metinden video';
+
+  @override
+  String get creationCustomCountLabel => 'Özel sayı';
+
+  @override
+  String creationFailureCategory(String kind) {
+    String _temp0 = intl.Intl.selectLogic(kind, {
+      'network': 'Ağ bağlantısı',
+      'rateLimited': 'İstek sınırı',
+      'server': 'Sağlayıcı hatası',
+      'rejected': 'İstek reddedildi',
+      'login': 'Oturum açma gerekli',
+      'unavailable': 'Model veya uç nokta kullanılamıyor',
+      'parameters': 'Geçersiz parametreler',
+      'referenceTooLarge': 'Referans çok büyük',
+      'download': 'İndirme başarısız',
+      'invalidResponse': 'Geçersiz yanıt',
+      'other': 'Oluşturma hatası',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String get creationInterruptedHelp =>
+      'Bu istek tamamlanmadan uygulama kapandı. İstem ve ayarlarınız kaydedildi.';
+
+  @override
+  String get creationCancelledHelp =>
+      'İstem ve ayarlarınız kaydedildi. İstediğiniz zaman yeniden oluşturabilirsiniz.';
+
+  @override
+  String get creationChatImageReady => 'Görsel oluşturuldu';
 }

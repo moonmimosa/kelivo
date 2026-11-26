@@ -70,6 +70,14 @@ void main() {
       'SELECT future_note FROM conversation_rows;',
     );
     raw.execute(
+      'ALTER TABLE generation_run_rows ADD COLUMN future_hidden INTEGER DEFAULT 0',
+    );
+    raw.execute('DROP INDEX idx_timeline_generation_target');
+    raw.execute(
+      'CREATE INDEX idx_timeline_generation_target ON generation_run_rows '
+      '(target_revision_id) WHERE future_hidden = 0',
+    );
+    raw.execute(
       'CREATE TABLE future_rows ('
       'id TEXT PRIMARY KEY, '
       'conversation_id TEXT REFERENCES conversation_rows (id) '
@@ -216,8 +224,10 @@ void main() {
           .toList();
       expect(tables, isNot(contains('future_rows')));
       expect(
-        raw.select("SELECT name FROM sqlite_master WHERE type = 'trigger';"),
-        isEmpty,
+        raw
+            .select("SELECT name FROM sqlite_master WHERE type = 'trigger';")
+            .map((row) => row['name']),
+        isNot(contains('future_column_trigger')),
         reason: 'source-build triggers must not survive normalization',
       );
       expect(
@@ -225,6 +235,13 @@ void main() {
         isEmpty,
         reason: 'source-build views must not survive normalization',
       );
+      final runIndex = raw
+          .select(
+            "SELECT partial FROM pragma_index_list('generation_run_rows') "
+            "WHERE name = 'idx_timeline_generation_target'",
+          )
+          .single;
+      expect(runIndex['partial'], 0);
 
       // The rows themselves survive: only the parts this build cannot
       // understand are dropped.

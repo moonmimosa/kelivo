@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../features/mcp/widgets/mcp_server_avatar.dart';
+import '../features/mcp/widgets/mcp_tool_connection_status.dart';
 import '../features/mcp/utils/mcp_tool_groups.dart';
 import 'package:provider/provider.dart';
 
@@ -15,6 +16,7 @@ import '../core/services/chat/chat_service.dart';
 import '../features/chat/utils/ensure_conversation.dart';
 import '../features/chat/widgets/image_recall_control.dart';
 import '../features/home/services/local_tool_labels.dart';
+import '../features/home/services/local_tools_service.dart';
 import '../features/home/services/local_tool_toggle.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
 import '../theme/design_tokens.dart';
@@ -283,7 +285,9 @@ class _ToolsContent extends StatelessWidget {
     final localToolIds = supportsModelTools
         ? availableLocalToolIds()
         : const <String>[];
+    final hasImageModel = watchHasDefaultImageModel(context);
     final enabledLocalTools = a.localToolIds.toSet();
+    if (!hasImageModel) enabledLocalTools.remove(LocalToolNames.generateImage);
 
     final rows = <WidgetBuilder>[];
     if (localToolIds.isNotEmpty) {
@@ -292,6 +296,8 @@ class _ToolsContent extends StatelessWidget {
       );
       for (final id in localToolIds) {
         final isEnabled = enabledLocalTools.contains(id);
+        final needsImageModel =
+            id == LocalToolNames.generateImage && !hasImageModel;
         rows.add(
           (context) => _RowItem(
             leading: Icon(
@@ -300,10 +306,16 @@ class _ToolsContent extends StatelessWidget {
               color: isEnabled ? cs.primary : cs.onSurface,
             ),
             label: localToolTitle(l10n, id),
+            subtitle: needsImageModel ? l10n.creationSelectDefaultImage : null,
             selected: isEnabled,
             onTap: () async {
-              await setLocalToolEnabled(
+              final host = Navigator.of(
                 context,
+                rootNavigator: true,
+              ).overlay!.context;
+              if (needsImageModel) onDone();
+              await setLocalToolEnabled(
+                needsImageModel ? host : context,
                 assistant: a,
                 toolId: id,
                 value: !isEnabled,
@@ -383,6 +395,9 @@ class _ToolsContent extends StatelessWidget {
               size: 16,
               radius: 7,
               showBackground: false,
+              status: mcp.statusFor(s.id) == McpStatus.connected
+                  ? null
+                  : mcp.statusFor(s.id),
             ),
             detail:
                 '${s.tools.where((t) => t.enabled).length}/${s.tools.length}',
@@ -400,6 +415,11 @@ class _ToolsContent extends StatelessWidget {
             },
           ),
         );
+        if (mcp.statusFor(s.id) != McpStatus.connected) {
+          rows.add(
+            (context) => McpToolConnectionStatus(serverId: s.id, desktop: true),
+          );
+        }
       }
     }
 
@@ -453,12 +473,13 @@ class _RowItem extends StatefulWidget {
     super.key,
     required this.leading,
     this.detail,
+    this.subtitle,
     required this.label,
     this.selected,
     required this.onTap,
   });
   final Widget leading;
-  final String? detail;
+  final String? detail, subtitle;
   final String label;
   final bool? selected;
   final VoidCallback? onTap;
@@ -509,8 +530,8 @@ class _RowItemState extends State<_RowItem> {
             onTap: widget.onTap,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 120),
-              height: 40,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              constraints: const BoxConstraints(minHeight: 40),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: _hovered || _focused ? hoverBg : baseBg,
                 borderRadius: BorderRadius.circular(12),
@@ -524,15 +545,29 @@ class _RowItemState extends State<_RowItem> {
                   ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(
-                      widget.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: AppFontWeights.regular,
-                        decoration: TextDecoration.none,
-                      ).copyWith(color: onColor),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          widget.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: AppFontWeights.regular,
+                            decoration: TextDecoration.none,
+                          ).copyWith(color: onColor),
+                        ),
+                        if (widget.subtitle case final subtitle?)
+                          Text(
+                            subtitle,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   if (widget.detail != null) ...[

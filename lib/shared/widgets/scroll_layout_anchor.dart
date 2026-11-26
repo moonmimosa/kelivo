@@ -5,7 +5,7 @@ import 'package:super_sliver_list/super_sliver_list.dart';
 /// Retain the content being read when an asynchronous image changes size.
 /// This is deliberately requested before the update, while hit testing still
 /// describes the painted frame. No render-tree scanning runs during scrolling.
-void preserveScrollLayoutAnchor(BuildContext context) {
+void preserveScrollLayoutAnchor(BuildContext context, {int layoutFrames = 1}) {
   final position = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
   if (position is! ScrollLayoutAnchor) return;
   // Table cells can contain a horizontal scrollable. Resolve the viewport
@@ -25,7 +25,11 @@ void preserveScrollLayoutAnchor(BuildContext context) {
         }
         return true;
       });
-      position.preserveViewportAnchor(node, indexedList: indexedList);
+      position.preserveViewportAnchor(
+        node,
+        indexedList: indexedList,
+        layoutFrames: layoutFrames,
+      );
       return;
     }
     node = node.parent;
@@ -36,7 +40,30 @@ void preserveScrollLayoutAnchor(BuildContext context) {
 /// [applyScrollLayoutAnchor] after applying dimensions, unless an explicit
 /// navigation or bottom-follow request owns that layout.
 mixin ScrollLayoutAnchor on ScrollPosition {
+  /// Whether deferred layout should yield to the viewport's bottom anchor.
+  bool get isSettlingAtBottom => false;
+
+  /// A lazy list scheduled another layout to apply new measurements.
+  void didScheduleDeferredLayout() {}
+
+  ValueNotifier<double?>? _openingLayoutOffset;
+
+  /// Lets virtual lists refresh their range after a silent layout correction.
+  Listenable get openingLayoutOffsets =>
+      _openingLayoutOffset ??= ValueNotifier<double?>(null);
+
+  void reportOpeningLayoutOffset() {
+    _openingLayoutOffset?.value = pixels;
+  }
+
+  @override
+  void dispose() {
+    _openingLayoutOffset?.dispose();
+    super.dispose();
+  }
+
   _ReadingAnchor? _readingAnchor;
+  int _anchorFrames = 0;
   double _layoutCorrection = 0;
   double? _laidOutPixels;
   double _laidOutCorrection = 0;
@@ -53,14 +80,21 @@ mixin ScrollLayoutAnchor on ScrollPosition {
     super.correctPixels(value);
   }
 
-  void clearScrollLayoutAnchor() => _readingAnchor = null;
+  void clearScrollLayoutAnchor({bool invalidateLayout = false}) {
+    _readingAnchor = null;
+    if (invalidateLayout) _laidOutPixels = null;
+  }
 
   void preserveViewportAnchor(
     RenderViewport viewport, {
     SliverMultiBoxAdaptorElement? indexedList,
+    required int layoutFrames,
   }) {
-    if (_readingAnchor != null ||
-        _laidOutPixels == null ||
+    if (_readingAnchor != null) {
+      if (layoutFrames > _anchorFrames) _anchorFrames = layoutFrames;
+      return;
+    }
+    if (_laidOutPixels == null ||
         !hasContentDimensions ||
         outOfRange ||
         axisDirection != AxisDirection.down ||
@@ -111,19 +145,27 @@ mixin ScrollLayoutAnchor on ScrollPosition {
             imageAnchor ??= anchor;
             continue;
           }
-          _setReadingAnchor(anchor);
+          _setReadingAnchor(anchor, layoutFrames);
           return;
         }
       }
     }
-    if (imageAnchor != null) _setReadingAnchor(imageAnchor);
+    if (imageAnchor != null) _setReadingAnchor(imageAnchor, layoutFrames);
   }
 
-  void _setReadingAnchor(_ReadingAnchor anchor) {
+  void _setReadingAnchor(_ReadingAnchor anchor, int layoutFrames) {
     _readingAnchor = anchor;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (identical(_readingAnchor, anchor)) _readingAnchor = null;
-    });
+    _anchorFrames = layoutFrames;
+    void expireAfterLayout(Duration _) {
+      if (!identical(_readingAnchor, anchor)) return;
+      if (--_anchorFrames <= 0) {
+        _readingAnchor = null;
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback(expireAfterLayout);
+      }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback(expireAfterLayout);
   }
 
   /// Returns false when the viewport must lay out again before painting.

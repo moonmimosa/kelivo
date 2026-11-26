@@ -346,6 +346,30 @@ abstract class AppLocalizations {
   /// **'Could not load files or check which images are in use. Please refresh and try again.'**
   String get storageSpaceLoadFailed;
 
+  /// Button on the Images and Files storage detail pages that copies the load error and its stack trace to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy error details'**
+  String get storageSpaceCopyErrorDetails;
+
+  /// Inline status on the Images and Files storage pages while files are visible and the app checks which attachments are safe to delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking attachment usage…'**
+  String get storageAttachmentChecking;
+
+  /// Inline error on the Images and Files storage pages when files can still be opened but their reference check failed and cleanup is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check attachment usage. Refresh to try again.'**
+  String get storageAttachmentCheckFailed;
+
+  /// Error notification on the Images and Files storage detail pages when the clipboard cannot accept the diagnostic text. The user can tap the copy button again.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not copy the error details. Please try again.'**
+  String get storageSpaceCopyErrorFailed;
+
   /// Label for total used storage space, displayed with a formatted byte size.
   ///
   /// In en, this message translates to:
@@ -1515,6 +1539,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Are you sure you want to delete this version? This cannot be undone.'**
   String get homePageDeleteMessageConfirm;
+
+  /// Action in a chat message's More menu and its confirmation dialog title. Deletes the other versions of this message while keeping the version on screen.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Other Versions'**
+  String get homePageDeleteOtherVersions;
+
+  /// Confirmation dialog body for deleting the other versions of one chat message. The version on screen is kept. Count is the number of other versions being permanently deleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep this version of the message? {count, plural, one{{count} other version will be deleted.} other{{count} other versions will be deleted.}} This cannot be undone.'**
+  String homePageDeleteOtherVersionsConfirm(int count);
 
   /// Dialog title and option label for deleting all versions of a message.
   ///
@@ -3052,6 +3088,18 @@ abstract class AppLocalizations {
   /// **'Reset all to defaults'**
   String get hotkeysResetAll;
 
+  /// Conflict message in desktop shortcut settings when a keyboard combination is shared by two actions that can be active at the same time. The action placeholder is the localized name shown for the other action in those settings.
+  ///
+  /// In en, this message translates to:
+  /// **'This shortcut is already assigned to {action}.'**
+  String hotkeysShortcutInUse(String action);
+
+  /// Action name substituted into the desktop shortcut conflict message for built-in keyboard behavior that types, edits text, or moves focus in a conversation.
+  ///
+  /// In en, this message translates to:
+  /// **'Text editing and focus navigation'**
+  String get hotkeysTextEditing;
+
   /// Label for the temperature sampling parameter control in assistant edit settings.
   ///
   /// In en, this message translates to:
@@ -3214,11 +3262,35 @@ abstract class AppLocalizations {
   /// **'Choose iCloud Drive or a folder outside On My iPhone > Kelivo. Files in the Kelivo folder are deleted with the app. The backup was not saved.'**
   String get backupPageChooseExternalFolder;
 
+  /// Error during a local backup export when the selected Android document already contains data or the file provider cannot confirm it is empty. Ask the user to select a fresh destination.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a new filename or another folder to save your backup.'**
+  String get backupPageChooseNewFile;
+
+  /// Backup export or restore error. {name} is a file path inside the ZIP and {limit} is the formatted maximum supported uncompressed size of one file.
+  ///
+  /// In en, this message translates to:
+  /// **'The backup file “{name}” exceeds the per-file limit of {limit}.'**
+  String backupArchiveFileSizeLimit(String name, String limit);
+
+  /// Error when the combined file sizes in a backup ZIP exceed the supported uncompressed total. {limit} is the formatted maximum size.
+  ///
+  /// In en, this message translates to:
+  /// **'The uncompressed backup exceeds the {limit} limit.'**
+  String backupArchiveTotalSizeLimit(String limit);
+
   /// Category label in the backup and import content selector. Includes attachments, avatars, background images, custom fonts and session files.
   ///
   /// In en, this message translates to:
   /// **'Files and Images'**
   String get backupPageFilesLabel;
+
+  /// Error shown on the backup settings page when local storage cannot save WebDAV or S3 server settings or the shared backup and import content selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the backup settings. Please try again.'**
+  String get backupPageSettingsSaveFailed;
 
   /// Title of the backup scope selector tile listing which content categories to back up or import.
   ///
@@ -3436,10 +3508,10 @@ abstract class AppLocalizations {
   /// **'Installing the backup'**
   String get restoreProgressStageInstallingBackup;
 
-  /// Restore progress stage label shown while the restored data is being verified.
+  /// Startup restore progress label while verifying that the installed data is intact before completing the restore.
   ///
   /// In en, this message translates to:
-  /// **'Verifying'**
+  /// **'Checking restored data'**
   String get restoreProgressStageVerifying;
 
   /// Restore progress stage label shown when a failed restore is reverting to the user's previous data.
@@ -3946,11 +4018,59 @@ abstract class AppLocalizations {
   /// **'Error copied'**
   String get backupProgressErrorCopied;
 
+  /// Completion heading in the backup progress dialog when unreadable asset files or directories were skipped; the archive was created successfully but does not include those items.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup completed with skipped items'**
+  String get backupProgressSkippedTitle;
+
+  /// Warning above the skipped path list in the backup completion dialog. {count} is the number of unreadable files or directories omitted; an unreadable directory counts once including all its descendants.
+  ///
+  /// In en, this message translates to:
+  /// **'Unreadable files or directories skipped: {count}. They are not included in this backup.'**
+  String backupProgressSkippedMessage(int count);
+
   /// Progress phase label for the initial preparation stage of a backup or restore task.
   ///
   /// In en, this message translates to:
   /// **'Preparing'**
   String get backupProgressPreparing;
+
+  /// Phase in the backup and restore progress dialog while scanning the files to pack or validate.
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning backup files'**
+  String get backupProgressScanning;
+
+  /// Subtitle during an export or restore file scan. {count} is the number of files discovered so far, not a final total.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 file found} other{{count} files found}}'**
+  String backupProgressDiscoveredFiles(int count);
+
+  /// Restore dialog phase while SQLite prepares or checks a database snapshot. The duration is unknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking the database'**
+  String get backupProgressCheckingDatabase;
+
+  /// Local backup export phase while the system save dialog waits for the user to choose a destination.
+  ///
+  /// In en, this message translates to:
+  /// **'Choosing where to save'**
+  String get backupProgressChoosingDestination;
+
+  /// Local backup export phase while writing the finished archive to the user-selected destination.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving backup file'**
+  String get backupProgressSavingFile;
+
+  /// Subtitle for a backup or restore phase without a measurable total. {time} is the elapsed time in minutes and seconds, for example 2:35.
+  ///
+  /// In en, this message translates to:
+  /// **'Elapsed {time}'**
+  String backupProgressElapsed(String time);
 
   /// Progress phase label for creating a database snapshot during backup.
   ///
@@ -3964,10 +4084,10 @@ abstract class AppLocalizations {
   /// **'Packing'**
   String get backupProgressPacking;
 
-  /// Progress phase label for verifying the backup archive.
+  /// Phase in the export progress dialog while checking the archive index and manifest, or reading back an internal recovery snapshot.
   ///
   /// In en, this message translates to:
-  /// **'Verifying'**
+  /// **'Checking backup archive'**
   String get backupProgressVerifying;
 
   /// Progress phase label for uploading a backup to remote storage.
@@ -3988,10 +4108,10 @@ abstract class AppLocalizations {
   /// **'Extracting'**
   String get backupProgressExtracting;
 
-  /// Progress phase label for validating the backup contents.
+  /// Phase in the backup import dialog while checking the contents of files prepared for restoration.
   ///
   /// In en, this message translates to:
-  /// **'Validating'**
+  /// **'Checking restore files'**
   String get backupProgressValidating;
 
   /// Progress phase label for reading settings from the backup.
@@ -4000,10 +4120,10 @@ abstract class AppLocalizations {
   /// **'Reading settings'**
   String get backupProgressReadingSettings;
 
-  /// Progress phase label for staging candidate data before committing an import.
+  /// Phase in the backup import dialog while moving or copying selected files into a private folder before replacing current data.
   ///
   /// In en, this message translates to:
-  /// **'Staging'**
+  /// **'Preparing restore files'**
   String get backupProgressStaging;
 
   /// Progress phase label for committing imported data to the database.
@@ -4083,6 +4203,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Import from Other Apps'**
   String get backupPageImportFromOtherApps;
+
+  /// Subtitle of Import from Other Apps in Local Backup. List every supported app by its product name and explain that the official toolbox converts the file privately in the browser.
+  ///
+  /// In en, this message translates to:
+  /// **'Newer Chatbox and Cherry Studio 2.x backups, plus ChatGPT, Claude, DeepSeek, Gemini, Grok, Open WebUI, NextChat, and LobeChat. Converts locally in your browser into a Kelivo backup; the file is not uploaded.'**
+  String get backupPageImportFromOtherAppsSubtitle;
+
+  /// Action in the backup import failure dialog and notification. Opens the official Kelivo conversion toolbox in the system browser.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Toolbox'**
+  String get backupPageOpenImportToolbox;
+
+  /// Notification when the system browser cannot open the import toolbox. Show its complete address {url} so the user can open it manually.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t open the browser. Open this URL yourself: {url}'**
+  String backupPageImportToolboxOpenFailed(String url);
+
+  /// Explanation above Merge in the local backup import mode dialog when the file is a toolbox chat import. The user can merge or cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'This file was converted by the official toolbox. It will be merged into your existing data and will not replace chats or assistants already on this device.'**
+  String get backupPageToolboxImportMergeOnlyHint;
 
   /// Status text indicating a feature or option is not yet supported.
   ///
@@ -4246,11 +4390,17 @@ abstract class AppLocalizations {
   /// **'Import from Cherry Studio'**
   String get backupPageImportFromCherryStudio;
 
-  /// Error message shown when a Cherry Studio backup uses format version {version} that Kelivo cannot import; advises exporting from Cherry Studio v1 or waiting for v2 support.
+  /// Shown in the import progress dialog and notification for a Cherry Studio 2.x backup. {version} is the file format version. Refer to the official browser toolbox and the Import Backup File and Merge actions in the app.
   ///
   /// In en, this message translates to:
-  /// **'This backup uses Cherry Studio format version {version}, which Kelivo cannot import yet. Export from Cherry Studio v1 instead, or wait for a Kelivo update that supports Cherry Studio v2 backups.'**
+  /// **'This is a Cherry Studio 2.x backup (format version {version}) and can’t be imported in the app directly. Convert it with the official toolbox into a Kelivo backup, then use Import Backup File and choose Merge. Conversion happens in your browser; the file is not uploaded.'**
   String backupPageCherryStudioUnsupportedBackupVersion(String version);
+
+  /// Shown in the import progress dialog and notification for an unsupported Chatbox backup. {version} is the file format version. Refer to the official browser toolbox and the Import Backup File and Merge actions in the app.
+  ///
+  /// In en, this message translates to:
+  /// **'This is a newer Chatbox backup (format version {version}) and can’t be imported in the app directly. Convert it with the official toolbox into a Kelivo backup, then use Import Backup File and choose Merge. Conversion happens in your browser; the file is not uploaded.'**
+  String backupPageChatboxUnsupportedBackupVersion(String version);
 
   /// Button label and task title for importing data from a Chatbox backup.
   ///
@@ -5596,6 +5746,12 @@ abstract class AppLocalizations {
   /// **'Show Deep Thinking and tool cards'**
   String get messageExportSheetShowThinkingAndToolCards;
 
+  /// Switch in the single-message and batch PNG export options. On shows all thinking and tool-call steps in each card. Off folds older steps and shows the latest ones. The adjacent Show thinking content switch controls the reasoning text inside each step.
+  ///
+  /// In en, this message translates to:
+  /// **'Expand all steps'**
+  String get messageExportSheetExpandAllSteps;
+
   /// Label for a toggle controlling whether the expanded thinking content is included in the export.
   ///
   /// In en, this message translates to:
@@ -6208,18 +6364,6 @@ abstract class AppLocalizations {
   /// **'Processing image'**
   String get chatInputBarImageProcessing;
 
-  /// Label on the chip indicating the composer is in image-generation mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Image mode'**
-  String get chatInputBarImageMode;
-
-  /// Tooltip on the close button of the image-mode chip; turns image mode off.
-  ///
-  /// In en, this message translates to:
-  /// **'Turn off image mode'**
-  String get chatInputBarDisableImageModeTooltip;
-
   /// Status label on a queued input preview indicating the message is waiting to be sent.
   ///
   /// In en, this message translates to:
@@ -6778,10 +6922,10 @@ abstract class AppLocalizations {
   /// **'Title Summary Model'**
   String get defaultModelPageTitleModelTitle;
 
-  /// Subtitle explaining the title-summary model follows the current chat model by default or can be set to another model.
+  /// Subtitle of the title-summary model card explaining the current chat model fallback and its use when automatically naming creation topics.
   ///
   /// In en, this message translates to:
-  /// **'Summarizes conversation titles using the current chat model by default, or a selected model.'**
+  /// **'Summarizes conversation titles using the current chat model by default, or a selected model. Creation also uses it to name topics automatically.'**
   String get defaultModelPageTitleModelSubtitle;
 
   /// Label for a toggle controlling whether thinking/reasoning is enabled for the title-summary model.
@@ -7729,6 +7873,18 @@ abstract class AppLocalizations {
   /// **'Send http(s) image links as-is; when off, remote links are dropped and only local images are sent'**
   String get modelSpecFormRemoteImageUrlsSubtitle;
 
+  /// Label for a switch in the model editor's request compatibility section that overrides the model's default list of available response speed tiers.
+  ///
+  /// In en, this message translates to:
+  /// **'Response speed tiers'**
+  String get modelSpecFormResponseSpeedTiers;
+
+  /// Help under the model editor's response speed tier switch. Fast and UltraFast can be enabled independently, and neither checked leaves Standard as the only available chat option. Users select the actual speed in each chat.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize which acceleration tiers this model offers in chats. Clear both to offer only Standard.'**
+  String get modelSpecFormResponseSpeedTiersSubtitle;
+
   /// Toggle label in request quirks controlling whether a cache_control marker is added to OpenRouter requests.
   ///
   /// In en, this message translates to:
@@ -8125,6 +8281,102 @@ abstract class AppLocalizations {
   /// **'1 hour'**
   String get providerDetailPageClaudePromptCachingTtl1h;
 
+  /// Label for selecting whether to edit this provider's automatic balance refresh settings or the global defaults.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic balance refresh'**
+  String get providerBalanceAutoRefresh;
+
+  /// Scope choice in the automatic balance refresh settings for editing overrides that apply only to the current provider.
+  ///
+  /// In en, this message translates to:
+  /// **'This provider'**
+  String get providerBalanceScopeProvider;
+
+  /// Scope choice in the automatic balance refresh settings for editing defaults shared across providers.
+  ///
+  /// In en, this message translates to:
+  /// **'Global defaults'**
+  String get providerBalanceScopeGlobal;
+
+  /// Short row label in automatic balance refresh settings for choosing how often to update the balance on a timer. Shown for both the global default and the provider override.
+  ///
+  /// In en, this message translates to:
+  /// **'Timed refresh'**
+  String get providerBalanceInterval;
+
+  /// Instruction above the fal balance-specific request headers. Keep the permission scope billing:usage:read, HTTP header Authorization, and literal Key prefix unchanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Balance queries need a fal key with the billing:usage:read permission. To use a separate billing key, add an Authorization header here with the value Key followed by a space and the key.'**
+  String get providerBalanceFalPermissionHint;
+
+  /// Short row label in fal balance settings. Refreshes the account balance when an image or video generation saves new output.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh after generation'**
+  String get providerBalanceRefreshAfterGeneration;
+
+  /// Short row label in automatic balance refresh settings. Updates the balance after each completed model reply. Shown for both the global default and the provider override.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh after replies'**
+  String get providerBalanceRefreshOnReply;
+
+  /// Compact current value and picker option that uses the global automatic balance refresh setting. Keep the wording short so it fits beside the row label. The value is the currently effective interval or localized on/off state.
+  ///
+  /// In en, this message translates to:
+  /// **'Default · {value}'**
+  String providerBalanceFollowDefault(String value);
+
+  /// Option disabling the selected balance refresh trigger, either the periodic interval or refresh after replies.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get providerBalanceRefreshOff;
+
+  /// Provider override option that enables refreshing the account balance after replies.
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get providerBalanceRefreshOn;
+
+  /// Account balance refresh interval displayed as a number of whole minutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 minute} other{{count} minutes}}'**
+  String providerBalanceRefreshMinutes(int count);
+
+  /// Preset selection for querying the account balance every one hour.
+  ///
+  /// In en, this message translates to:
+  /// **'1 hour'**
+  String get providerBalanceRefreshHour;
+
+  /// Option that opens the dialog for entering a custom balance refresh interval.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom interval…'**
+  String get providerBalanceCustomInterval;
+
+  /// Numeric field label in the custom account balance refresh interval dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Interval in minutes'**
+  String get providerBalanceIntervalMinutes;
+
+  /// Action in the account balance badge context menu to query the provider immediately.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh balance now'**
+  String get providerBalanceRefreshNow;
+
+  /// Balance badge tooltip showing the date and time of the most recent successful query. Both placeholders are already localized.
+  ///
+  /// In en, this message translates to:
+  /// **'Last updated {date} at {time}'**
+  String providerBalanceLastUpdated(String date, String time);
+
   /// Title of the account balance page and a row label opening balance settings.
   ///
   /// In en, this message translates to:
@@ -8185,17 +8437,23 @@ abstract class AppLocalizations {
   /// **'Checking...'**
   String get providerDetailPageBalanceQuerying;
 
-  /// Button label that resets balance settings to their defaults.
+  /// Visible action below the provider's balance settings that opens a confirmation dialog, also used as the dialog title.
   ///
   /// In en, this message translates to:
-  /// **'Reset'**
+  /// **'Restore default balance settings'**
   String get providerDetailPageBalanceResetDefaultsButton;
 
-  /// Tooltip on the reset icon button that restores default balance settings.
+  /// Warning in the provider balance reset dialog. It replaces custom request fields with the provider preset, resets whether balance queries are enabled, and makes automatic refresh inherit the global settings.
   ///
   /// In en, this message translates to:
-  /// **'Reset balance settings'**
-  String get providerDetailPageBalanceResetDefaultsTooltip;
+  /// **'This will replace this provider’s custom balance request settings, restore the default state of its balance switch, and make automatic refresh follow the global settings.'**
+  String get providerDetailPageBalanceResetConfirmMessage;
+
+  /// Confirmation button in the provider balance reset dialog. Activating it restores default balance settings for the current provider.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore defaults'**
+  String get providerDetailPageBalanceResetConfirmButton;
 
   /// Success message and displayed value showing the queried balance, with {value} substituted by the balance amount.
   ///
@@ -8851,6 +9109,12 @@ abstract class AppLocalizations {
   /// **'Models'**
   String get providerDetailPageModelsTitle;
 
+  /// Tooltip in the desktop provider's model toolbar and title of the dialog where users drag models into their preferred order for the chat model picker.
+  ///
+  /// In en, this message translates to:
+  /// **'Reorder models'**
+  String get providerDetailPageReorderModels;
+
   /// Button label that fetches/refreshes the provider's available models.
   ///
   /// In en, this message translates to:
@@ -9097,17 +9361,89 @@ abstract class AppLocalizations {
   /// **'Scroll to bottom'**
   String get miniMapScrollToBottomTooltip;
 
-  /// Label showing how many messages match the minimap search; {count} is the match number.
+  /// Tooltip for the magnifying glass in the minimap and placeholder in its search field. Searches the current conversation and shows matching message previews inside the minimap.
   ///
   /// In en, this message translates to:
-  /// **'{count}'**
+  /// **'Search minimap'**
+  String get miniMapSearchHint;
+
+  /// Compact label beside a minimap search preview. The count is the total number of keyword occurrences in that single message, including occurrences outside the preview.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 match} other{{count} matches}}'**
   String miniMapSearchMatchCount(int count);
 
-  /// Empty-state text in the minimap search showing no messages matched the query.
+  /// Empty state in the minimap after a completed query matches no user messages or assistant replies.
   ///
   /// In en, this message translates to:
   /// **'No matching messages'**
   String get miniMapSearchNoResults;
+
+  /// Status inside the minimap if searching the current conversation for matching messages fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t search messages'**
+  String get miniMapSearchFailed;
+
+  /// Placeholder in the search field of the current conversation’s find bar.
+  ///
+  /// In en, this message translates to:
+  /// **'Find'**
+  String get conversationFindHint;
+
+  /// Tooltip for the find bar button that selects the previous occurrence in the current conversation.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous match'**
+  String get conversationFindPrevious;
+
+  /// Tooltip for the find bar button that selects the next occurrence in the current conversation.
+  ///
+  /// In en, this message translates to:
+  /// **'Next match'**
+  String get conversationFindNext;
+
+  /// Tooltip for the find bar button that opens the search options menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Find options'**
+  String get conversationFindOptions;
+
+  /// Match counter in the conversation find bar. current is the one-based occurrence index and total is the number of occurrences. Both are zero for no matches.
+  ///
+  /// In en, this message translates to:
+  /// **'{current}/{total}'**
+  String conversationFindMatchPosition(int current, int total);
+
+  /// Toggle in the conversation find menu requiring the query to match uppercase and lowercase letters exactly.
+  ///
+  /// In en, this message translates to:
+  /// **'Match case'**
+  String get conversationFindCaseSensitive;
+
+  /// Toggle in the conversation find menu limiting matches to whole words.
+  ///
+  /// In en, this message translates to:
+  /// **'Whole word'**
+  String get conversationFindWholeWord;
+
+  /// Tooltip beside the whole-word search option explaining word boundaries and how CJK queries behave.
+  ///
+  /// In en, this message translates to:
+  /// **'Matches whole words for scripts with word boundaries (e.g. English). Queries that contain Chinese, Japanese, or Korean characters still use substring matching.'**
+  String get conversationFindWholeWordTooltip;
+
+  /// Toggle in the conversation find menu to also search the assistant’s reasoning steps.
+  ///
+  /// In en, this message translates to:
+  /// **'Include thinking'**
+  String get conversationFindIncludeThinking;
+
+  /// Tooltip for the message map button and label in desktop shortcut settings for opening the find bar in the current conversation.
+  ///
+  /// In en, this message translates to:
+  /// **'Find in conversation'**
+  String get conversationFindOpenTooltip;
 
   /// Status label indicating a search service still needs an API key to be configured.
   ///
@@ -9301,6 +9637,30 @@ abstract class AppLocalizations {
   /// **'Region (optional, default: us-en)'**
   String get searchServicesEditDialogRegionOptional;
 
+  /// Validation error under the 4get instance address or in a desktop notification. The address must be an absolute HTTP or HTTPS base URL without a query or fragment. HTTP and HTTPS are technical terms.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter an HTTP or HTTPS base URL.'**
+  String get searchServicesFourGetUrlInvalid;
+
+  /// Label for the optional upstream search engine identifier in the 4get settings form, such as ddg for DuckDuckGo. When empty, the instance chooses its default.
+  ///
+  /// In en, this message translates to:
+  /// **'Upstream engine (optional)'**
+  String get searchServicesFourGetScraperOptional;
+
+  /// Label for the optional masked 4get credential field in search service settings. Pass is the literal cookie name 'pass'. Preserve it as a name.
+  ///
+  /// In en, this message translates to:
+  /// **'Pass cookie (optional)'**
+  String get searchServicesFourGetPassOptional;
+
+  /// Help below the 4get credential field. Tell users to solve the instance's CAPTCHA when required and paste the value of the cookie whose literal name is 'pass'. Keep 'pass' lowercase and untranslated.
+  ///
+  /// In en, this message translates to:
+  /// **'If the instance requires a CAPTCHA, complete it and paste the value of the pass cookie.'**
+  String get searchServicesFourGetPassHelp;
+
   /// Section header for choosing the search provider type in the service editor.
   ///
   /// In en, this message translates to:
@@ -9312,6 +9672,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Configuration'**
   String get searchServiceEditorConfigurationTitle;
+
+  /// Tooltip and accessibility label for the button inside the search service editor that opens the icon source menu for this configured service.
+  ///
+  /// In en, this message translates to:
+  /// **'Change icon'**
+  String get searchServiceEditorChangeIcon;
+
+  /// Error shown in the search service editor when selecting or importing a custom service icon fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not use this icon. Choose another image or icon.'**
+  String get searchServiceEditorIconFailed;
 
   /// Placeholder text shown when the selected provider requires no extra configuration fields.
   ///
@@ -10237,6 +10609,18 @@ abstract class AppLocalizations {
   /// **'Auto switch to Topics'**
   String get displaySettingsPageAutoSwitchTopicsTitle;
 
+  /// Label for the switch in desktop Display settings that removes the fixed maximum width for the message list and input box.
+  ///
+  /// In en, this message translates to:
+  /// **'Full-width chat'**
+  String get desktopDisplaySettingsFullWidthChatTitle;
+
+  /// Tooltip beside the full-width chat switch in desktop Display settings. The chat area is the space available between the sidebars.
+  ///
+  /// In en, this message translates to:
+  /// **'Expand messages and the input box to fill the chat area.'**
+  String get desktopDisplaySettingsFullWidthChatSubtitle;
+
   /// Label for choosing whether the topic list sits on the left or right.
   ///
   /// In en, this message translates to:
@@ -10716,6 +11100,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Low-latency streaming transcription'**
   String get asrServicesOpenAiSubtitle;
+
+  /// Subtitle in the speech recognition provider list for DeepSeek. It transcribes recorded audio segments and determines the spoken language from the audio.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcribes recordings and detects the language automatically'**
+  String get asrServicesDeepSeekSubtitle;
 
   /// Subtitle describing the Groq ASR service as Whisper-based segmented cloud transcription.
   ///
@@ -11215,6 +11605,12 @@ abstract class AppLocalizations {
   /// **'Voice'**
   String get ttsServicesFieldVoiceLabel;
 
+  /// Name and gender of the selected DeepSeek voice in the mobile and desktop TTS service editor. The voiceId is the API identifier. Preserve the select keys stella and tide and display any other identifier as supplied.
+  ///
+  /// In en, this message translates to:
+  /// **'{voiceId, select, stella{Stella (female)} tide{Tide (male)} other{{voiceId}}}'**
+  String ttsServicesDeepSeekVoice(String voiceId);
+
   /// Label for the voice ID field, used for providers like MiniMax, xAI and ElevenLabs.
   ///
   /// In en, this message translates to:
@@ -11659,48 +12055,6 @@ abstract class AppLocalizations {
   /// **'Next Image'**
   String get imageViewerPageNextButton;
 
-  /// Label of the button that zooms the image in.
-  ///
-  /// In en, this message translates to:
-  /// **'Zoom In'**
-  String get imageViewerPageZoomInButton;
-
-  /// Label of the button that zooms the image out.
-  ///
-  /// In en, this message translates to:
-  /// **'Zoom Out'**
-  String get imageViewerPageZoomOutButton;
-
-  /// Label of the button that resets the image zoom to its default level.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset Zoom'**
-  String get imageViewerPageResetZoomButton;
-
-  /// Label of the button that mirrors the image left-to-right.
-  ///
-  /// In en, this message translates to:
-  /// **'Flip Horizontal'**
-  String get imageViewerPageFlipHorizontalButton;
-
-  /// Label of the button that mirrors the image top-to-bottom.
-  ///
-  /// In en, this message translates to:
-  /// **'Flip Vertical'**
-  String get imageViewerPageFlipVerticalButton;
-
-  /// Label of the button that rotates the image counterclockwise.
-  ///
-  /// In en, this message translates to:
-  /// **'Rotate Left'**
-  String get imageViewerPageRotateLeftButton;
-
-  /// Label of the button that rotates the image clockwise.
-  ///
-  /// In en, this message translates to:
-  /// **'Rotate Right'**
-  String get imageViewerPageRotateRightButton;
-
   /// Compact position indicator in the image viewer showing current image number and total, e.g. 2/5.
   ///
   /// In en, this message translates to:
@@ -11785,6 +12139,12 @@ abstract class AppLocalizations {
   /// **'Privacy-respecting metasearch engine. Self-hosted instance required; no tracking.'**
   String get searchProviderSearXNGDescription;
 
+  /// Description for the 4get search provider option. The user supplies a public or self-hosted 4get instance where its search API is enabled. Preserve the brand name '4get'.
+  ///
+  /// In en, this message translates to:
+  /// **'Web search through a public or self-hosted 4get instance with the API enabled.'**
+  String get searchProviderFourGetDescription;
+
   /// Description under the Tavily search provider option noting it is an AI search API optimized for LLMs.
   ///
   /// In en, this message translates to:
@@ -11856,6 +12216,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'SearXNG'**
   String get searchServiceNameSearXNG;
+
+  /// Display name of the 4get web search provider in the search service pickers. Keep the brand spelling '4get'.
+  ///
+  /// In en, this message translates to:
+  /// **'4get'**
+  String get searchServiceNameFourGet;
 
   /// Display name for the 'linkup' search service type in the search service list and editor.
   ///
@@ -12066,6 +12432,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You.com Search API. Returns web and news results with highlights or snippets.'**
   String get searchProviderYouDescription;
+
+  /// Display name for the Keenable search provider, returned by a switch on the service type in the search services settings pane and editor page.
+  ///
+  /// In en, this message translates to:
+  /// **'Keenable'**
+  String get searchServiceNameKeenable;
+
+  /// Short description shown under the Keenable provider in the search service editor, noting that an API key is optional and keyless calls use the public endpoint.
+  ///
+  /// In en, this message translates to:
+  /// **'Keenable Search. An API key is optional; without one, requests use the public endpoint.'**
+  String get searchProviderKeenableDescription;
 
   /// Dropdown label in the search service settings for choosing You.com content mode (Highlights or Snippets).
   ///
@@ -13729,10 +14107,10 @@ abstract class AppLocalizations {
   /// **'Open Logs Folder'**
   String get logViewerOpenFolder;
 
-  /// Header count label showing how many requests are in the log; {count} is the integer total.
+  /// Summary in the request log viewer. The count is the number of request instances loaded so far, not a total for the entire file; it increases as earlier pages load.
   ///
   /// In en, this message translates to:
-  /// **'{count} requests'**
+  /// **'{count} loaded requests'**
   String logViewerRequestsCount(int count);
 
   /// Field label for the request's numeric ID in the log entry detail summary.
@@ -15313,10 +15691,10 @@ abstract class AppLocalizations {
   /// **'Global setting for all assistants'**
   String get legacyMemoryModeSubtitle;
 
-  /// Info banner warning that the default legacy template injects the current time via the given token placeholder, which hurts cache hit rate.
+  /// Banner in the legacy memory rule editor. {token} is the literal placeholder removed when sending the template. Directs users who want the model to see the current time to the assistant's Append current time setting.
   ///
   /// In en, this message translates to:
-  /// **'The default template injects the current time via {token}, which affects cache hit rate. Remove it if you do not need it.'**
+  /// **'If a template still contains {token}, it is stripped on inject and is no longer filled with the current time. If the model needs the current time, turn on \"Append current time\" in assistant settings.'**
   String legacyMemoryModeCacheWarning(String token);
 
   /// Label for a memory content field in the memory UI; no caller supplied, evidently names the content input.
@@ -17065,6 +17443,18 @@ abstract class AppLocalizations {
   /// **'Follows the theme; not customizable'**
   String get messageStyleSettingsPageStyleDefaultSubtitle;
 
+  /// Switch label in Message Style settings for Frosted Glass and Solid styles. Controls the bubble around the main assistant reply, independently of user messages and cards.
+  ///
+  /// In en, this message translates to:
+  /// **'Show assistant reply bubbles'**
+  String get messageStyleSettingsPageShowAssistantBodyBubble;
+
+  /// Subtitle below the assistant reply bubble switch explaining where the reply text appears when the switch is off.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off to show reply text directly on the chat background'**
+  String get messageStyleSettingsPageShowAssistantBodyBubbleSubtitle;
+
   /// Switch label to make assistant bubbles shrink to their text width instead of filling the row.
   ///
   /// In en, this message translates to:
@@ -17088,6 +17478,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Blank lines break an assistant reply into one bubble per paragraph'**
   String get messageStyleSettingsPageAssistantSplitParagraphsSubtitle;
+
+  /// Switch label in Message Style settings for the Frosted Glass and Solid styles. Enables a single independent visual style shared by thinking and tool-call cards.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize thinking and tool cards'**
+  String get messageStyleSettingsPageCustomizeThinkingToolCards;
+
+  /// Subtitle below the Message Style switch for editing thinking and tool-call cards independently of the assistant reply bubbles. Both card types share the same appearance settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Give thinking and tool calls their own appearance'**
+  String get messageStyleSettingsPageCustomizeThinkingToolCardsSubtitle;
 
   /// Subtitle for the Frosted background style option, describing a translucent frosted-glass look.
   ///
@@ -17179,16 +17581,22 @@ abstract class AppLocalizations {
   /// **'User'**
   String get messageStyleSettingsPageRoleUser;
 
-  /// Right segment label selecting the Assistant role when editing message style.
+  /// Segment label for editing the visual style of assistant replies in Message Style settings.
   ///
   /// In en, this message translates to:
   /// **'Assistant'**
   String get messageStyleSettingsPageRoleAssistant;
 
-  /// Hint noting assistant style settings also apply to thinking, tool-call, and translation cards.
+  /// Compact segment label for editing the shared style of thinking and tool-call cards in Message Style settings. The switch above already names thinking and tools, so use a short noun equivalent to Cards if the full label would be long.
   ///
   /// In en, this message translates to:
-  /// **'Assistant settings also apply to thinking, tool-call, and translation cards.'**
+  /// **'Cards'**
+  String get messageStyleSettingsPageRoleThinkingTool;
+
+  /// Hint below the Message Style target selector. Translation cards always use the assistant style, and thinking and tool-call cards use it when their own customization is off.
+  ///
+  /// In en, this message translates to:
+  /// **'Translation cards follow the assistant style. Thinking and tool cards follow it by default.'**
   String get messageStyleSettingsPageRoleAssistantHint;
 
   /// Section header for local database snapshot/copy settings on the backup page and desktop backup pane.
@@ -20433,10 +20841,10 @@ abstract class AppLocalizations {
   /// **'Conversation files'**
   String get storageSpaceCategorySessionFiles;
 
-  /// Description of the conversation files category: attachments and outputs per conversation.
+  /// Storage Conversation files category help. Distinguishes workspace session copies and outputs from original uploads shown in Images/Files.
   ///
   /// In en, this message translates to:
-  /// **'Per-conversation attachments and outputs.'**
+  /// **'Workspace conversation attachments and outputs. Ordinary chat uploads are listed in Images and Files.'**
   String get storageSpaceCategorySessionFilesHint;
 
   /// Button label opening the skills management screen, used in the skills popover and storage page.
@@ -20445,16 +20853,16 @@ abstract class AppLocalizations {
   /// **'Manage skills'**
   String get storageSpaceManageSkills;
 
-  /// Button label to delete session folders that no longer have an associated conversation.
+  /// Storage Conversation files action. Removes empty roots including metadata-only folders and unreferenced orphan directories; other conversation references are protected.
   ///
   /// In en, this message translates to:
-  /// **'Clean orphaned conversation files'**
+  /// **'Clean empty and orphaned folders'**
   String get storageSessionFilesCleanOrphans;
 
-  /// Confirmation message for cleaning orphaned session files; {size} is the reclaimable space.
+  /// Confirmation for cleaning empty and orphaned conversation directories. size is the measured disk use of orphan directories before final reference protection checks.
   ///
   /// In en, this message translates to:
-  /// **'Deletes session folders that no longer have a conversation. Reclaimable: {size}.'**
+  /// **'Remove empty conversation folders and folders with no conversation or remaining references. Orphaned files occupy {size}.'**
   String storageSessionFilesCleanOrphansHint(String size);
 
   /// Text field label for the folder path when creating a desktop workspace.
@@ -20691,10 +21099,10 @@ abstract class AppLocalizations {
   /// **'Read files with line numbers and paging.'**
   String get workspaceToolHelpRead;
 
-  /// Description for the 'view_image' tool: lets the model inspect an image stored in the workspace.
+  /// Text in the workspace Tools pane explaining that the view_image tool lets the model inspect workspace images and download images from public HTTP or HTTPS URLs.
   ///
   /// In en, this message translates to:
-  /// **'Let the model inspect an image from the workspace.'**
+  /// **'Let the model inspect workspace images or images at public URLs.'**
   String get workspaceToolHelpViewImage;
 
   /// Description for the 'write_file' tool: creates files or overwrites their contents.
@@ -20883,7 +21291,55 @@ abstract class AppLocalizations {
   /// **'Could not switch conversations. Your draft has been kept.'**
   String get incomingShareMoveFailed;
 
-  /// Warning shown when an attachment named {name} needs a bound workspace with file tools; suggests binding one or moving the draft to a workspace conversation.
+  /// Detailed composer or generation error for an attachment whose text encoding cannot be recognized. {name} is the displayed file name.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t recognize the text encoding of “{name}”. Save it as UTF-8 and send it again.'**
+  String attachmentEncodingUnrecognized(String name);
+
+  /// Short error label on a composer attachment card when its text encoding cannot be recognized.
+  ///
+  /// In en, this message translates to:
+  /// **'Encoding unrecognized'**
+  String get attachmentEncodingUnrecognizedShort;
+
+  /// Detailed composer or generation error for a binary attachment. {name} is the displayed file name.
+  ///
+  /// In en, this message translates to:
+  /// **'“{name}” isn’t a text file, so it can’t be used here.'**
+  String attachmentNotText(String name);
+
+  /// Short error label on a composer attachment card for binary content.
+  ///
+  /// In en, this message translates to:
+  /// **'Not a text file'**
+  String get attachmentNotTextShort;
+
+  /// Shown on tapping a truncated composer attachment and after its text in the model prompt. {count} is the actual number of Unicode characters included.
+  ///
+  /// In en, this message translates to:
+  /// **'This file is too large, so only the first {count} characters were read. Split it and send again if you need the rest.'**
+  String attachmentTruncatedNotice(int count);
+
+  /// Short warning on a composer attachment card when only the start of its text will be sent.
+  ///
+  /// In en, this message translates to:
+  /// **'Only the beginning will be sent'**
+  String get attachmentTruncatedCard;
+
+  /// Detailed composer or generation error when a document exceeds the local extraction size limit. {name} is the displayed file name.
+  ///
+  /// In en, this message translates to:
+  /// **'“{name}” is too large to read in a regular chat.'**
+  String attachmentDocumentTooLarge(String name);
+
+  /// Short error label on a composer attachment card when a document exceeds the local extraction limit.
+  ///
+  /// In en, this message translates to:
+  /// **'File too large'**
+  String get attachmentDocumentTooLargeShort;
+
+  /// Warning in a conversation already bound to a workspace when an attachment cannot be read locally and the necessary file tools are unavailable. {name} is the displayed file name.
   ///
   /// In en, this message translates to:
   /// **'To use “{name}”, bind a workspace and enable file tools, or move this draft to a conversation with a workspace. This file cannot be read directly in a regular chat.'**
@@ -24198,10 +24654,10 @@ abstract class AppLocalizations {
   /// **'Backups are encrypted. Enter the password again after restarting the app.'**
   String get backupEncryptionOnHint;
 
-  /// Warning to keep the password safe since a lost password makes the backup unrestorable, kept only in memory.
+  /// Hint when setting an encryption password. A password remembered on this device is still needed to restore an encrypted backup on another device.
   ///
   /// In en, this message translates to:
-  /// **'Keep this password safe. If you lose it, the backup cannot be restored. It is kept in memory until you exit the app.'**
+  /// **'Keep this password safe. You will need it to restore backups on another device.'**
   String get backupEncryptionPasswordHint;
 
   /// Field label for the backup encryption password input.
@@ -26310,10 +26766,10 @@ abstract class AppLocalizations {
   /// **'{count} characters'**
   String contextEditCharacters(int count);
 
-  /// Error message when a summary would exceed the context limit and was therefore not applied.
+  /// Advisory notice in manual compression review when the locally estimated context after applying the summary exceeds the chat model window. The user can still choose to apply the summary.
   ///
   /// In en, this message translates to:
-  /// **'The summary is still too long and would exceed the limit, so it wasn’t used. Compress again, or switch to a model with a larger context.'**
+  /// **'The result may exceed the chat model’s window. You can review and apply the summary.'**
   String get compressOverSnack;
 
   /// Hint on the summary editor explaining the summary is used in later requests, saving doesn't rewrite replies, and attachments use only existing text.
@@ -26525,12 +26981,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Dismiss'**
   String get compressTaskAbandon;
-
-  /// Browser agent status chip label shown when an operation timed out and the AI was paused.
-  ///
-  /// In en, this message translates to:
-  /// **'Operation timed out; AI paused'**
-  String get browserAgentTimedOut;
 
   /// Snackbar confirming compression was cancelled and the current context is unchanged.
   ///
@@ -27414,10 +27864,10 @@ abstract class AppLocalizations {
   /// **'unknown limit'**
   String get contextUnknownLimit;
 
-  /// Error message when a browser action timed out with unknown outcome; asks the user to check the page before letting the AI continue.
+  /// Browser tool error summary for a timed-out command with an unconfirmed outcome. Browser control remains available for the assistant to inspect the page; this does not request manual permission to resume.
   ///
   /// In en, this message translates to:
-  /// **'Operation timed out; outcome unknown. Check the page before allowing AI to continue.'**
+  /// **'Operation timed out; outcome unknown. AI can inspect the page before continuing.'**
   String get browserErrActionTimeout;
 
   /// Description of the approval-required permission mode: tools accessing files outside the workspace or running desktop commands ask before executing.
@@ -28122,6 +28572,30 @@ abstract class AppLocalizations {
   /// **'Not included'**
   String get imageContextOmitted;
 
+  /// Tooltip on an image row action in the Image context panel. Exclude that image from subsequent model requests and conversation image recall, retaining the original image in chat.
+  ///
+  /// In en, this message translates to:
+  /// **'Exclude from context'**
+  String get imageContextExclude;
+
+  /// Tooltip on the image row action in the Image context panel that removes a manual exclusion. The current conversation and automatic selection rules determine when an eligible image is sent or recalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove exclusion'**
+  String get imageContextRestore;
+
+  /// Status shown beside an image in the Image context panel when the user has explicitly excluded that image from requests and conversation recall.
+  ///
+  /// In en, this message translates to:
+  /// **'Excluded by you'**
+  String get imageContextExcluded;
+
+  /// Status and disabled action tooltip in the Image context panel for a tool-recalled copy that inherits an exclusion from the original image.
+  ///
+  /// In en, this message translates to:
+  /// **'Original image excluded'**
+  String get imageContextExcludedWithOriginal;
+
   /// Tooltip on the pin button for an image; pins it to prioritize retention.
   ///
   /// In en, this message translates to:
@@ -28164,10 +28638,10 @@ abstract class AppLocalizations {
   /// **'Keep your attachments longer and set aside older tool images.'**
   String get imageContextAutomaticDescription;
 
-  /// Hint text in the image context panel explaining pinning prioritizes retention and re-adding sends to composer.
+  /// Hint above the image rows in the Image context panel summarizing the row actions: exclude an image from model requests, pin it to prioritize retention, or add it to the composer again.
   ///
   /// In en, this message translates to:
-  /// **'Pin to prioritize an image, or add it to the composer again.'**
+  /// **'Exclude individual images, pin them for priority, or add them to the composer again.'**
   String get imageContextActionsHint;
 
   /// Empty-state hint in the image context panel telling users that sent images or tool-read images will be listed here.
@@ -28530,35 +29004,41 @@ abstract class AppLocalizations {
   /// **'Start at'**
   String get compressionTrigger;
 
-  /// Percentage field in automatic compression settings: desired input usage after compression.
+  /// Percentage field in automatic compression settings giving a preferred input usage after compression. This percentage guides planning.
   ///
   /// In en, this message translates to:
-  /// **'Compress to'**
+  /// **'Aim for'**
   String get compressionTarget;
 
-  /// Optional input-capacity override for the summary model in compression details, measured in tokens.
+  /// Optional window override in compression details for estimating the current chat model's input capacity when planning automatic compression, measured in tokens. The summary model has its own window.
   ///
   /// In en, this message translates to:
-  /// **'Summary model capacity'**
+  /// **'Auto compression planning window'**
   String get compressionWindow;
 
-  /// Maximum number of model requests allowed for one compression task, including retries. Also labels the recovery action that opens this field.
+  /// Main switch in the text compression details for including background information in the summary request. It also controls the availability of the instruction injection option. No placeholders.
   ///
   /// In en, this message translates to:
-  /// **'Maximum requests'**
-  String get compressionRequests;
-
-  /// Compression option to include world books evaluated on the selected history and memory snapshots frozen in that history, rather than current live memory or retained messages.
-  ///
-  /// In en, this message translates to:
-  /// **'Reference world books and historical memory'**
+  /// **'Use background references'**
   String get compressionReference;
 
-  /// Compression reference help: restrict dynamic reference sources to the selected historical range, and distinguish explanatory background from events or character knowledge. No placeholders.
+  /// Help below the background references switch in text compression settings. The assistant’s system prompt, world book entries matched to the selected history, and memory snapshots saved in that range help explain context. The chat history establishes events and character knowledge. No placeholders.
   ///
   /// In en, this message translates to:
-  /// **'World books are matched only against the history being compressed, using memory snapshots from that time. This is only to explain names and rules — it doesn’t mean those events happened, or that a character already knows them.'**
+  /// **'The summary can draw on the assistant’s system prompt, world book entries matched to this part of the chat, and memories saved at the time. The chat history establishes what happened and what each character knows.'**
   String get compressionReferenceHint;
+
+  /// Switch under background references in text compression settings. Enables sending the instruction cards selected for the chat as reference material to the model generating a summary. No placeholders.
+  ///
+  /// In en, this message translates to:
+  /// **'Use instruction injections as references'**
+  String get compressionInstructionInjections;
+
+  /// Help below the instruction injection switch in text compression settings. Describes the selected chat instruction cards being sent as background material for the summary. No placeholders.
+  ///
+  /// In en, this message translates to:
+  /// **'Send the instruction cards enabled for this chat to the summary model as background references.'**
+  String get compressionInstructionInjectionsHint;
 
   /// Switch label for replacing already-consumed tool results with references.
   ///
@@ -28644,23 +29124,17 @@ abstract class AppLocalizations {
   /// **'{count} request(s) didn’t return usage data. That doesn’t mean they were free.'**
   String compressionUsageUnknown(int count);
 
-  /// Compression failure when the estimated or actual request count exceeds the configured maximum. Refers to the setting named compressionRequests and confirms no result was applied.
-  ///
-  /// In en, this message translates to:
-  /// **'This would take more model requests than the current limit allows, so the context is unchanged. Raise Maximum requests, or switch to a model with a larger context.'**
-  String get compressionBudgetError;
-
   /// Error message when the summary was truncated or refused and not applied, advising adjusting output limit or model.
   ///
   /// In en, this message translates to:
   /// **'The summary was cut off or refused, and the context is unchanged. Raise the output limit, or try a different model.'**
   String get compressionIncomplete;
 
-  /// Error message when template, reference, or working summary fills the model budget, advising fewer references or a larger model.
+  /// Compression error shown when the model provider actually rejected the final attempted input with a context length or payload size error. Original provider details are shown separately.
   ///
   /// In en, this message translates to:
-  /// **'Reference material already fills this model’s capacity, leaving no room for the summary. Use fewer references, or switch to a model with a larger context.'**
-  String get compressionReferenceTooLarge;
+  /// **'The provider reported that the request was too large. Try a model with a larger context.'**
+  String get compressionProviderContextRejected;
 
   /// Error message when referenced background changed, advising reviewing the candidate or regenerating.
   ///
@@ -28668,10 +29142,10 @@ abstract class AppLocalizations {
   /// **'The referenced background has changed. Review this summary, or generate a new one.'**
   String get compressionReferenceChanged;
 
-  /// Review notice when automatic compression did not reduce the full request below its trigger ratio. The original context remains active; suggests shortening the summary or adjusting compressionTrigger.
+  /// Review notice when automatic compression estimates that the projected chat request with the generated summary and retained messages does not reduce input usage.
   ///
   /// In en, this message translates to:
-  /// **'Even after compression, usage would still be above the automatic starting point, so the original context was kept. Shorten the summary, or raise Start at.'**
+  /// **'The result is estimated to use at least as much context as the original. You can review and shorten the summary.'**
   String get compressionTargetNotReached;
 
   /// Error message when the selected template is unavailable, advising choosing another.
@@ -28824,11 +29298,11 @@ abstract class AppLocalizations {
   /// **'Compress once, then retry the reply that failed'**
   String get compressionOverflowAction;
 
-  /// Status line in the compression options dialog showing estimated request count and the per-run limit, including retries.
+  /// Status line in the compression options dialog with the estimated number of summary model requests. The count can change as the server replies.
   ///
   /// In en, this message translates to:
-  /// **'Estimated {count} request(s) · limit {limit}, including retries'**
-  String compressionPlannedCalls(int count, int limit);
+  /// **'{count, plural, =1{About 1 request} other{About {count} requests}}'**
+  String compressionPlannedCalls(int count);
 
   /// Note in the template library indicating a template is also used as the global default.
   ///
@@ -28986,12 +29460,6 @@ abstract class AppLocalizations {
   /// **'turns'**
   String get compressionTurnUnit;
 
-  /// Unit suffix ('calls') appended to the numeric request-attempts field in compression options.
-  ///
-  /// In en, this message translates to:
-  /// **'calls'**
-  String get compressionCallUnit;
-
   /// Timeout field for each compression request, in minutes. Also labels the recovery action that opens this field.
   ///
   /// In en, this message translates to:
@@ -29028,10 +29496,10 @@ abstract class AppLocalizations {
   /// **'Compression details'**
   String get compressionAdvancedOptions;
 
-  /// Subtitle under the advanced options disclosure describing references, original-history rereading and request limits.
+  /// Subtitle under the advanced options disclosure describing references, original history, and window planning estimates.
   ///
   /// In en, this message translates to:
-  /// **'References, whether to look back at originals, and the request limit'**
+  /// **'Background references, original history, and planning estimates'**
   String get compressionAdvancedHint;
 
   /// Hint for the window field indicating automatic sizing.
@@ -29039,6 +29507,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Auto'**
   String get compressionAutomaticWindow;
+
+  /// Read-only line in compression details showing the estimated capacity of the model used for summaries. The tokens placeholder is a compact count like 128K, and source is a localized model metadata source such as Catalog or Custom.
+  ///
+  /// In en, this message translates to:
+  /// **'Summary model window · {tokens} tokens · {source}'**
+  String compressionSummaryWindowEstimate(String tokens, String source);
 
   /// Hint in compression options when auto-compression is off, noting manual compression is available.
   ///
@@ -29106,10 +29580,10 @@ abstract class AppLocalizations {
   /// **'Within the character limit, compress more recent complete messages. Messages not selected stay as original text.'**
   String get compressionScopeRecentHint;
 
-  /// Hint in the compression options dialog explaining that automatic compression always keeps recent turns regardless of the manual scope, and that this turn count is shared with manual compression.
+  /// Hint beneath the numeric field for recent turns in automatic text compression. The app may summarize additional old turns when needed. The current request is protected. This is plain text with no placeholders.
   ///
   /// In en, this message translates to:
-  /// **'Automatic compression always keeps recent originals, regardless of the range you pick for a manual run. The turn count is shared with manual compression.'**
+  /// **'Automatic compression keeps recent turns when there is room. It can summarize additional older turns and always protects the current request.'**
   String get compressionAutoKeepHint;
 
   /// Title of the image and request budget settings row and desktop dialog header in provider settings.
@@ -29339,6 +29813,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Turkish'**
   String get languageDisplayTurkish;
+
+  /// Name of the Bengali language (Bangla) as a target in the assistant reply translation menu and standalone translator.
+  ///
+  /// In en, this message translates to:
+  /// **'Bangla'**
+  String get languageDisplayBangla;
+
+  /// Name of the Arabic language as a target in the translation menus and standalone translator.
+  ///
+  /// In en, this message translates to:
+  /// **'Arabic'**
+  String get languageDisplayArabic;
+
+  /// Accessible label for the translation toolbar action and title of its mobile page or desktop dialog. The settings control which target languages appear and in what order.
+  ///
+  /// In en, this message translates to:
+  /// **'Translation languages'**
+  String get translationLanguageManagerTitle;
+
+  /// Brief instructions above the translation languages list. Turning on a switch shows its language in translation menus. Drag handles on those rows change the order.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on the languages to show. Drag to reorder.'**
+  String get translationLanguageManagerHint;
+
+  /// Section heading above the enabled translation languages. These languages appear in translation menus in this order.
+  ///
+  /// In en, this message translates to:
+  /// **'Shown in menus'**
+  String get translationLanguageManagerShown;
+
+  /// Section heading above translation languages that are currently hidden from the translation menus and can be turned on again.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden'**
+  String get translationLanguageManagerHidden;
+
+  /// Validation message in the translation language manager when no languages are checked and the Save button is disabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep at least one translation language visible.'**
+  String get translationLanguageManagerKeepOne;
+
+  /// Error in the translation language manager if saving the visible languages or their order fails. The user can retry with their current choices.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the translation languages. Try again.'**
+  String get translationLanguageManagerSaveFailed;
 
   /// Confirmation question before deleting the named chat from the sidebar. Keep the title placeholder; reorder the sentence naturally.
   ///
@@ -29609,6 +30131,2850 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Retry without images (keep originals)'**
   String get responseRetryWithoutImages;
+
+  /// Browser settings row and picker title for the maximum wait for an individual native browser command.
+  ///
+  /// In en, this message translates to:
+  /// **'Operation timeout'**
+  String get browserOperationTimeout;
+
+  /// Explanatory text in the browser operation-timeout picker. Describes the command deadline and that the assistant can inspect the page after a timeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum wait for a browser command. The assistant can check the page after a timeout.'**
+  String get browserOperationTimeoutDescription;
+
+  /// Selected value and picker option in browser operation-timeout settings. The integer seconds placeholder is the maximum command wait in seconds.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds} seconds'**
+  String browserOperationTimeoutSeconds(int seconds);
+
+  /// Browser tool error summary when a page-changing command was not sent because an earlier command timed out. The assistant must successfully read a snapshot or extract before further changes; no manual resume permission is needed.
+  ///
+  /// In en, this message translates to:
+  /// **'Inspect the page before continuing; the previous operation is unconfirmed.'**
+  String get browserErrObservationRequired;
+
+  /// Settings button in the upper-right corner of the Storage Space overview, and its dialog title. Configures automatic deletion of unused chat images and files.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-clean attachments'**
+  String get storageAttachmentRetention;
+
+  /// Number field shown only when delayed automatic cleanup is selected. Enter a positive number of days to keep unused attachments before deleting them.
+  ///
+  /// In en, this message translates to:
+  /// **'Days before cleanup'**
+  String get storageAttachmentRetentionDays;
+
+  /// First option in the automatic attachment cleanup dialog. Selects zero-day retention without requiring the user to type zero.
+  ///
+  /// In en, this message translates to:
+  /// **'Clean immediately'**
+  String get storageAttachmentRetentionImmediately;
+
+  /// Short introduction in the automatic attachment cleanup dialog. Explains the purpose in everyday language before the immediate/later choice.
+  ///
+  /// In en, this message translates to:
+  /// **'After you delete messages or chats, automatically remove images and files that are no longer used.'**
+  String get storageAttachmentRetentionHint;
+
+  /// Attachment badge when no conversation, draft or appearance reference remains and no automatic recycling deadline is recorded. Manual deletion is available.
+  ///
+  /// In en, this message translates to:
+  /// **'Unused'**
+  String get storageAttachmentUnused;
+
+  /// Attachment status showing the earliest scheduled cleanup date. date is a localized calendar date; cleanup may wait for the next maintenance run.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for cleanup · {date}'**
+  String storageAttachmentPending(String date);
+
+  /// Compact label below an attachment preview and in its information dialog. names lists every chat or branch using this file.
+  ///
+  /// In en, this message translates to:
+  /// **'Chats: {names}'**
+  String storageAttachmentConversations(String names);
+
+  /// Action in the Images/Files list. Opens a confirmation to delete files that are no longer used; active files remain protected.
+  ///
+  /// In en, this message translates to:
+  /// **'Clean unused'**
+  String get storageAttachmentCleanUnused;
+
+  /// Brief explanation in the Images/Files list and automatic cleanup dialog, also used as the in-use badge tooltip. Avoid technical reference-count terminology.
+  ///
+  /// In en, this message translates to:
+  /// **'Files still in use will be kept.'**
+  String get storageAttachmentProtectedHint;
+
+  /// Confirmation for manual storage attachment cleanup. count is the selected number; references are checked again before deletion.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {count} unused files now? Files that are still in use will be kept.'**
+  String storageAttachmentDeleteConfirm(int count);
+
+  /// Second option in the automatic attachment cleanup dialog. Reveals a field for the number of days to wait before deleting unused attachments.
+  ///
+  /// In en, this message translates to:
+  /// **'Clean later'**
+  String get storageAttachmentRetentionDelayed;
+
+  /// Inline error below the delayed attachment cleanup number field. Only shown when the value is empty, zero, or above the maximum. Immediate cleanup has its own option.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 1–3650 days.'**
+  String get storageAttachmentRetentionInvalidDays;
+
+  /// Title of the information dialog opened by tapping an attachment status label. Shows its chats or cleanup status; this is not the automatic-cleanup settings dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'File info'**
+  String get storageAttachmentDetailsTitle;
+
+  /// Compression options panel: Also send your earlier messages as written Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Also send your earlier messages as written'**
+  String get compressionCarryTitle;
+
+  /// Compression options panel: From the part that becomes a summary, your own messages are sent to the model as you wrote them, not just as the summary retells them. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'From the part that becomes a summary, your own messages are sent to the model as you wrote them, not just as the summary retells them.'**
+  String get compressionCarryHint;
+
+  /// Compression options panel: Send the latest Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Send the latest'**
+  String get compressionCarryCountLabel;
+
+  /// Compression options panel: messages Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'messages'**
+  String get compressionCarryUnit;
+
+  /// Compression options panel: As many as fit Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'As many as fit'**
+  String get compressionCarryAll;
+
+  /// Compression options panel: No set number. Starts from the newest and goes back until it’s nearly full; if the oldest one is too long, only its start and end are sent. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'No set number. Starts from the newest and goes back until it’s nearly full; if the oldest one is too long, only its start and end are sent.'**
+  String get compressionCarryAllHint;
+
+  /// Compression options panel: Also bring back messages from earlier summaries Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Also bring back messages from earlier summaries'**
+  String get compressionCarryEarlier;
+
+  /// Compression options panel: Your messages from parts compressed earlier can be included too. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Your messages from parts compressed earlier can be included too.'**
+  String get compressionCarryEarlierHint;
+
+  /// Summary below Message preview and More settings in manual context compression. Shows how many original user messages and associated assistant replies the current selection would carry, and their combined estimated input tokens. A reply already in retained history is not counted again.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 user message} other{{count} user messages}} · {replyCount, plural, =1{1 reply} other{{replyCount} replies}} · about {tokens} tokens'**
+  String compressionCarryPreview(int count, int replyCount, String tokens);
+
+  /// Compression options panel: The part being summarized has no messages from you. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'The part being summarized has no messages from you.'**
+  String get compressionCarryNone;
+
+  /// Compression options panel: {count} older messages don’t fit and won’t be sent this time. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} older messages don’t fit and won’t be sent this time.'**
+  String compressionCarryNotFit(int count);
+
+  /// Compression options panel: {count} more Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} more'**
+  String compressionCarryMoreRows(int count);
+
+  /// Compression options panel: These messages would likely be more than the current model can take. Send fewer, or switch to a model with a larger context. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'These messages would likely be more than the current model can take. Send fewer, or switch to a model with a larger context.'**
+  String get compressionCarryOverBudget;
+
+  /// Compression options panel: Change to {count} Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Change to {count}'**
+  String compressionCarryFitAction(int count);
+
+  /// Compression options panel: Too long; only the start and end are sent Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Too long; only the start and end are sent'**
+  String get compressionCarryTruncated;
+
+  /// Compression options panel: Automatic compression will do the same. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic compression will do the same.'**
+  String get compressionCarryAutoToo;
+
+  /// Compression options panel: Images and files aren’t carried to the new chat; only the text is. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Images and files aren’t carried to the new chat; only the text is.'**
+  String get compressionCarryNewChatText;
+
+  /// Compression options panel: This service keeps your earlier messages on its own when compressing. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'This service keeps your earlier messages on its own when compressing.'**
+  String get compressionCarryServerKeeps;
+
+  /// Context operation details and carried message editor: Sent as written Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent as written'**
+  String get contextDetailCarried;
+
+  /// Context operation details and carried message editor: {count} of your earlier messages Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of your earlier messages'**
+  String contextDetailCarriedCount(int count);
+
+  /// Context operation details and carried message editor: Kept by the service Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Kept by the service'**
+  String get contextDetailServerKept;
+
+  /// Context operation details and carried message editor: This only changes the text sent to the model. The original message in the chat stays the same. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'This only changes the text sent to the model. The original message in the chat stays the same.'**
+  String get contextCarriedEditHint;
+
+  /// Context operation details and carried message editor: This can’t be empty. To stop sending it, choose “Stop sending”. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'This can’t be empty. To stop sending it, choose “Stop sending”.'**
+  String get contextCarriedEmpty;
+
+  /// Context operation details and carried message editor: Stop sending Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sending'**
+  String get contextCarriedRemove;
+
+  /// Context operation details and carried message editor: This won’t be sent to the model anymore. The original message in the chat isn’t affected. Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'This won’t be sent to the model anymore. The original message in the chat isn’t affected.'**
+  String get contextCarriedRemoveConfirm;
+
+  /// Context operation details and carried message editor: The original was deleted; only this text remains Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'The original was deleted; only this text remains'**
+  String get contextCarriedSourceDeleted;
+
+  /// Compression options panel: Include the reply too Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Include the reply too'**
+  String get compressionCarryReply;
+
+  /// Compression options panel: +about {tokens} Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'+about {tokens}'**
+  String compressionCarryReplyTokens(String tokens);
+
+  /// Compression options panel: The reply is already in the kept turns Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'The reply is already in the kept turns'**
+  String get compressionCarryReplyInKept;
+
+  /// Context operation details and carried message editor: The reply Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'The reply'**
+  String get contextCarriedReplyLabel;
+
+  /// Context operation details and carried message editor: Don’t send the reply Refers to original user messages additionally sent with a summary; replies are optional text-only copies.
+  ///
+  /// In en, this message translates to:
+  /// **'Don’t send the reply'**
+  String get contextCarriedRemoveReply;
+
+  /// In the full-screen draft image editor: Cancel control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get imageEditorCancel;
+
+  /// In the full-screen draft image editor: finish editing and return to the composer without sending.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get imageEditorDone;
+
+  /// In the full-screen draft image editor: Undo control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get imageEditorUndo;
+
+  /// In the full-screen draft image editor: Redo control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Redo'**
+  String get imageEditorRedo;
+
+  /// In the full-screen draft image editor: Crop control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Crop'**
+  String get imageEditorToolCrop;
+
+  /// In the full-screen draft image editor: Draw control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Draw'**
+  String get imageEditorToolDraw;
+
+  /// In the full-screen draft image editor: Text control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Text'**
+  String get imageEditorToolText;
+
+  /// In the full-screen draft image editor: Mosaic control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Mosaic'**
+  String get imageEditorToolMosaic;
+
+  /// In the full-screen draft image editor: Pen control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Pen'**
+  String get imageEditorPen;
+
+  /// In the full-screen draft image editor: Arrow control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Arrow'**
+  String get imageEditorArrow;
+
+  /// In the full-screen draft image editor: Eraser control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Eraser'**
+  String get imageEditorEraser;
+
+  /// In the full-screen draft image editor: Free control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Free'**
+  String get imageEditorAspectFree;
+
+  /// In the full-screen draft image editor: Original control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Original'**
+  String get imageEditorAspectOriginal;
+
+  /// In the full-screen draft image editor: Rotate left control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate left'**
+  String get imageEditorRotate;
+
+  /// In the full-screen draft image editor: Flip control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Flip'**
+  String get imageEditorFlip;
+
+  /// In the full-screen draft image editor: Plain control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Plain'**
+  String get imageEditorTextPlain;
+
+  /// In the full-screen draft image editor: Outline control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Outline'**
+  String get imageEditorTextOutline;
+
+  /// In the full-screen draft image editor: Fill control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Fill'**
+  String get imageEditorTextFill;
+
+  /// In the full-screen draft image editor: Align control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Align'**
+  String get imageEditorAlign;
+
+  /// In the full-screen draft image editor: Brush control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Brush'**
+  String get imageEditorMosaicBrush;
+
+  /// In the full-screen draft image editor: Box control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Box'**
+  String get imageEditorMosaicRect;
+
+  /// In the full-screen draft image editor: Discard changes? control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard changes?'**
+  String get imageEditorDiscardTitle;
+
+  /// In the full-screen draft image editor: Keep editing control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep editing'**
+  String get imageEditorKeepEditing;
+
+  /// In the full-screen draft image editor: Discard control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get imageEditorDiscard;
+
+  /// In the full-screen draft image editor: Couldn't process image control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t process image'**
+  String get imageEditorProcessFailed;
+
+  /// In the full-screen draft image editor: Retry control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get imageEditorRetry;
+
+  /// In the full-screen draft image editor: Remove control or status for editing draft image pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get imageEditorRemove;
+
+  /// In the full-screen draft image editor: revert the current image to its original imported pixels; this operation is undoable.
+  ///
+  /// In en, this message translates to:
+  /// **'Revert'**
+  String get imageEditorRestore;
+
+  /// In the full-screen draft image editor: accessible label of a color swatch; color is its six-digit hexadecimal RGB value.
+  ///
+  /// In en, this message translates to:
+  /// **'Color {color}'**
+  String imageEditorColor(String color);
+
+  /// Button in draft image preview that opens the image editor; absent for sent images.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get imageViewerPageEditButton;
+
+  /// Accessible label and tooltip of the draft image size chip that opens per-image compression quality controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Image size'**
+  String get imageViewerPageFileSize;
+
+  /// Segment in the earlier-message settings that selects a fixed number of recent messages.
+  ///
+  /// In en, this message translates to:
+  /// **'Latest messages'**
+  String get compressionCarryModeCount;
+
+  /// Heading above the list of messages the user can select in the compression settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Message preview'**
+  String get compressionCarryListTitle;
+
+  /// Action beside the Message preview heading in manual context compression. Includes the available assistant replies for all currently selected user messages, including collapsed rows. Individual replies can still be switched off.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all replies'**
+  String get compressionCarrySelectAllReplies;
+
+  /// Action beside the Message preview heading in manual context compression. Clears every assistant reply selection for this compression, including collapsed replies and those outside the token budget. The selected user messages stay checked.
+  ///
+  /// In en, this message translates to:
+  /// **'Deselect all replies'**
+  String get compressionCarryDeselectAllReplies;
+
+  /// Warning on the first user message whose selected assistant reply puts the pair over the remaining token budget in the fit-as-many-as-possible compression preview. This pair is omitted from the totals. The reply can still be switched off.
+  ///
+  /// In en, this message translates to:
+  /// **'This message and its reply exceed the remaining budget. Both will be left out.'**
+  String get compressionCarryPairNotFit;
+
+  /// Preview title for a message containing only images. Count is the number of images.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 image} other{{count} images}}'**
+  String compressionCarryImageCount(int count);
+
+  /// Preview label for a message with multiple attachments or without known file names. Count is the number of attachments.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 attachment} other{{count} attachments}}'**
+  String compressionCarryAttachmentCount(int count);
+
+  /// Shown in the compression preview when the selected message has neither readable text nor identifiable attachments.
+  ///
+  /// In en, this message translates to:
+  /// **'No message text'**
+  String get compressionCarryNoText;
+
+  /// Validation message beside the number of earlier messages to send in compression settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a number from 1 to 10,000.'**
+  String get compressionCarryInvalidCount;
+
+  /// Shown in external backup settings or completion notifications. Backup will continue in the background
+  ///
+  /// In en, this message translates to:
+  /// **'Backup will continue in the background'**
+  String get backupRunningInBackground;
+
+  /// Shown in external backup settings or completion notifications. Background backup failed: {error} The error is the localized reason for the failure.
+  ///
+  /// In en, this message translates to:
+  /// **'Background backup failed: {error}'**
+  String backupBackgroundFailed(String error);
+
+  /// Shown in external backup settings or completion notifications. Back up automatically when due
+  ///
+  /// In en, this message translates to:
+  /// **'Back up automatically when due'**
+  String get backupAutoEnableTitle;
+
+  /// Shown in external backup settings or completion notifications. When the scheduled time arrives, Kelivo backs up while the app is in the foreground. If the app is closed or killed, the backup does not keep running and is not resumed; the next time you open the app, a single full backup runs if it is still due.
+  ///
+  /// In en, this message translates to:
+  /// **'When the scheduled time arrives, Kelivo backs up while the app is in the foreground. If the app is closed or killed, the backup does not keep running and is not resumed; the next time you open the app, a single full backup runs if it is still due.'**
+  String get backupAutoEnableHint;
+
+  /// Shown in external backup settings or completion notifications. Automatic backup destination
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic backup destination'**
+  String get backupAutoDestinationTitle;
+
+  /// Shown in external backup settings or completion notifications. WebDAV
+  ///
+  /// In en, this message translates to:
+  /// **'WebDAV'**
+  String get backupAutoDestinationWebDav;
+
+  /// Shown in external backup settings or completion notifications. S3
+  ///
+  /// In en, this message translates to:
+  /// **'S3'**
+  String get backupAutoDestinationS3;
+
+  /// Desktop automatic backup folder settings or write result. Local folder
+  ///
+  /// In en, this message translates to:
+  /// **'Local folder'**
+  String get backupAutoDestinationLocal;
+
+  /// Shown in external backup settings or completion notifications. Set up WebDAV or S3 first.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up WebDAV or S3 first.'**
+  String get backupAutoNeedRemoteHint;
+
+  /// Shown in external backup settings or completion notifications. Set up WebDAV or S3, or choose a local folder first.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up WebDAV or S3, or choose a local folder first.'**
+  String get backupAutoNeedDestinationHint;
+
+  /// Desktop automatic backup folder settings or write result. Choose a backup folder first.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a backup folder first.'**
+  String get backupAutoNeedFolderHint;
+
+  /// Desktop automatic backup folder settings or write result. Choose folder…
+  ///
+  /// In en, this message translates to:
+  /// **'Choose folder…'**
+  String get backupAutoLocalFolderChoose;
+
+  /// Desktop automatic backup folder settings or write result. Change folder
+  ///
+  /// In en, this message translates to:
+  /// **'Change folder'**
+  String get backupAutoLocalFolderChange;
+
+  /// Desktop automatic backup folder settings or write result. Choose a folder outside the app's own data directory.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a folder outside the app\'s own data directory.'**
+  String get backupAutoLocalFolderInvalid;
+
+  /// Desktop automatic backup folder settings or write result. Keep at most
+  ///
+  /// In en, this message translates to:
+  /// **'Keep at most'**
+  String get backupAutoLocalRetentionTitle;
+
+  /// Desktop automatic backup folder settings or write result. {count} backups The count is the positive number of backups to keep.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} backups'**
+  String backupAutoLocalRetentionCount(int count);
+
+  /// Desktop automatic backup folder settings or write result. No limit
+  ///
+  /// In en, this message translates to:
+  /// **'No limit'**
+  String get backupAutoLocalRetentionUnlimited;
+
+  /// Desktop automatic backup folder settings or write result. Back up to this folder now
+  ///
+  /// In en, this message translates to:
+  /// **'Back up to this folder now'**
+  String get backupAutoLocalNow;
+
+  /// Desktop automatic backup folder settings or write result. Can't write to the chosen folder. Check that it is still available, or choose another one. Kelivo won't change the saved location on its own.
+  ///
+  /// In en, this message translates to:
+  /// **'Can\'t write to the chosen folder. Check that it is still available, or choose another one. Kelivo won\'t change the saved location on its own.'**
+  String get backupAutoLocalDirUnavailable;
+
+  /// Desktop automatic backup folder settings or write result. You don't have permission to write to the chosen folder. Please choose the folder again. Kelivo won't change the saved location on its own.
+  ///
+  /// In en, this message translates to:
+  /// **'You don\'t have permission to write to the chosen folder. Please choose the folder again. Kelivo won\'t change the saved location on its own.'**
+  String get backupAutoLocalDirPermission;
+
+  /// Desktop automatic backup folder settings or write result. There isn't enough disk space, so the backup didn't finish. Your earlier backups are still there.
+  ///
+  /// In en, this message translates to:
+  /// **'There isn\'t enough disk space, so the backup didn\'t finish. Your earlier backups are still there.'**
+  String get backupAutoLocalDirFull;
+
+  /// Desktop automatic backup folder settings or write result. Kelivo can't access the chosen folder. Please choose it again. The saved location won't be changed automatically.
+  ///
+  /// In en, this message translates to:
+  /// **'Kelivo can\'t access the chosen folder. Please choose it again. The saved location won\'t be changed automatically.'**
+  String get backupAutoLocalBookmarkLost;
+
+  /// Shown in external backup settings or completion notifications. Next automatic backup
+  ///
+  /// In en, this message translates to:
+  /// **'Next automatic backup'**
+  String get backupAutoNextTitle;
+
+  /// Device-only password consent dialog when enabling encrypted automatic backups. Remember the password on this device?
+  ///
+  /// In en, this message translates to:
+  /// **'Remember the password on this device?'**
+  String get backupAutoRememberPasswordTitle;
+
+  /// Device-only password consent dialog when enabling encrypted automatic backups. Remember the password on this device so automatic backups can run. It stays on this device and is never uploaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Remember the password on this device so automatic backups can run. It stays on this device and is never uploaded.'**
+  String get backupAutoRememberPasswordMessage;
+
+  /// Device-only password consent dialog when enabling encrypted automatic backups. Remember
+  ///
+  /// In en, this message translates to:
+  /// **'Remember'**
+  String get backupAutoRememberPasswordConfirm;
+
+  /// Device-only password consent dialog when enabling encrypted automatic backups. Not now
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get backupAutoRememberPasswordDecline;
+
+  /// Device-only password consent dialog when enabling encrypted automatic backups. Automatic backup was not turned on. You'll still get a reminder when it's due.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic backup was not turned on. You\'ll still get a reminder when it\'s due.'**
+  String get backupAutoRememberDeclined;
+
+  /// Backup settings or automatic backup failure when access to the device credential store is unavailable. Manual backups can still prompt for the password.
+  ///
+  /// In en, this message translates to:
+  /// **'Kelivo can’t access the system keychain for the backup password. You can still back up manually.'**
+  String get backupAutoKeychainUnavailable;
+
+  /// Shown in external backup settings or completion notifications. Automatic backup finished
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic backup finished'**
+  String get backupAutoSucceeded;
+
+  /// Shown in external backup settings or completion notifications. Automatic backup failed: {error} The error is the localized reason for the failure.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic backup failed: {error}'**
+  String backupAutoFailed(String error);
+
+  /// Shown in external backup settings or completion notifications. Automatic backup failed: the password is incorrect.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic backup failed: the password is incorrect.'**
+  String get backupAutoFailedPassword;
+
+  /// Sidebar reminder after a due automatic external backup fails.
+  ///
+  /// In en, this message translates to:
+  /// **'The automatic backup didn\'t finish. Check the network or back up manually.'**
+  String get backupReminderSidebarSubtitleAutoFailed;
+
+  /// Subtitle for backup encryption when the device remembers the password for manual or automatic backups.
+  ///
+  /// In en, this message translates to:
+  /// **'Backups are encrypted. The password is saved on this device.'**
+  String get backupEncryptionOnHintRemembered;
+
+  /// Backup encryption settings switch and optional password dialog checkbox. Saves the backup encryption password on this device for future backups, including manual backups.
+  ///
+  /// In en, this message translates to:
+  /// **'Remember password on this device'**
+  String get backupRememberPasswordOnDevice;
+
+  /// Subtitle of the remember-password switch when encrypted automatic backups are on, explaining what forgetting the password will do.
+  ///
+  /// In en, this message translates to:
+  /// **'Turning this off also turns off automatic backups.'**
+  String get backupForgetDisablesAutomaticHint;
+
+  /// Hint when entering the current encryption password to make a backup or save it on this device.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the password you set for encrypted backups.'**
+  String get backupManualPasswordHint;
+
+  /// Notice when the user chose to remember the password during a manual backup but secure storage failed. The current backup still uses the password they entered.
+  ///
+  /// In en, this message translates to:
+  /// **'The password couldn’t be saved on this device. This backup will continue.'**
+  String get backupManualPasswordNotSaved;
+
+  /// Action in backup encryption settings to choose a new password for future external backups while keeping encryption enabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Change backup password'**
+  String get backupEncryptionChangePassword;
+
+  /// Shown after macOS denies authorization for the local backup password. Keychain Access is the name of the macOS utility. The user should unlock their login keychain there and retry.
+  ///
+  /// In en, this message translates to:
+  /// **'macOS couldn’t unlock the login keychain. Open Keychain Access, unlock “login”, then try again in Kelivo.'**
+  String get backupMacKeychainNeedsUnlock;
+
+  /// Button on a backup-password authorization error that opens Apple’s Keychain Access app on macOS so the user can unlock their default keychain.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Keychain Access'**
+  String get backupMacOpenKeychainAccess;
+
+  /// Backup password error when macOS denied access even though the default keychain was reported unlocked. Covers access denied by item permissions or an unusable login keychain without assuming that the user cancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'macOS denied access to the backup password. If a system prompt appears, allow Kelivo to access it. You can also check the default keychain and the password item’s permissions in Keychain Access.'**
+  String get backupMacKeychainAccessDenied;
+
+  /// Tooltip for a group-related action menu in World Book settings. A group header shows actions for its folder, and the main menu shows actions across folders.
+  ///
+  /// In en, this message translates to:
+  /// **'Group actions'**
+  String get worldBookGroupActions;
+
+  /// Label of the folder field in the World Book editor and title of its group picker. This sets which folder contains the book.
+  ///
+  /// In en, this message translates to:
+  /// **'Group'**
+  String get worldBookGroupLabel;
+
+  /// Menu action and page title in World Book settings for dragging all books into the order used to break ties between entries with the same priority.
+  ///
+  /// In en, this message translates to:
+  /// **'Arrange injection order'**
+  String get worldBookOrder;
+
+  /// Title in World Book settings while selecting books to move. count is the number selected across all folders.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 book selected} other{{count} books selected}}'**
+  String worldBookGroupSelectedBooks(int count);
+
+  /// Name of the section and move destination for World Books without a folder.
+  ///
+  /// In en, this message translates to:
+  /// **'Ungrouped'**
+  String get worldBookGroupUngrouped;
+
+  /// Action and dialog title for creating a World Book folder in settings.
+  ///
+  /// In en, this message translates to:
+  /// **'New group'**
+  String get worldBookGroupNew;
+
+  /// Input field hint when naming or renaming a World Book folder in settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Group name'**
+  String get worldBookGroupName;
+
+  /// Validation below the group name field when another World Book folder has this name.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a unique group name.'**
+  String get worldBookGroupNameInvalid;
+
+  /// Action and dialog title for renaming the currently displayed World Book folder.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename group'**
+  String get worldBookGroupRename;
+
+  /// Action and confirmation title for removing the currently displayed World Book folder. Its books are kept.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete group'**
+  String get worldBookGroupDelete;
+
+  /// Text in the World Book folder deletion confirmation. group is the user-provided name of the folder being deleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Books in “{group}” will move to Ungrouped.'**
+  String worldBookGroupDeleteMessage(String group);
+
+  /// Control and destination picker title for moving one or more World Books into a folder or back to Ungrouped.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to group'**
+  String get worldBookGroupMove;
+
+  /// Title of the checklist for choosing books to move together in World Book settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Select World Books'**
+  String get worldBookGroupSelectBooks;
+
+  /// Error when a World Book folder edit, bulk move, or group selection could not be saved.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save your changes. Try again.'**
+  String get worldBookGroupSaveFailed;
+
+  /// Action in the chat World Book picker to select the currently enabled books in this folder for the current chat or assistant.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all in group'**
+  String get worldBookGroupSelectAll;
+
+  /// Action in the chat World Book picker to deselect all books in this folder for the current chat or assistant.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear group selection'**
+  String get worldBookGroupClearSelection;
+
+  /// Title of the Sidebar page reached from Settings > Display and label of its navigation row.
+  ///
+  /// In en, this message translates to:
+  /// **'Sidebar'**
+  String get sidebarSettingsTitle;
+
+  /// Action in mobile sidebar More and in desktop rail context menus. Opens sidebar layout and entry controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize sidebar'**
+  String get sidebarCustomize;
+
+  /// Heading of the mobile Sidebar settings section that shows four layout presets.
+  ///
+  /// In en, this message translates to:
+  /// **'Layout'**
+  String get sidebarLayoutTitle;
+
+  /// Mobile sidebar layout preset matching the original Kelivo layout with icon entries and the user bar at the bottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Current layout'**
+  String get sidebarPresetCurrent;
+
+  /// Mobile sidebar layout preset with a list of entry rows near the top.
+  ///
+  /// In en, this message translates to:
+  /// **'Navigation list'**
+  String get sidebarPresetNavigation;
+
+  /// Mobile sidebar layout preset with the assistant selector below the conversation list.
+  ///
+  /// In en, this message translates to:
+  /// **'Assistant at bottom'**
+  String get sidebarPresetAssistantBottom;
+
+  /// Mobile sidebar layout preset placing all fixed blocks above the scrolling conversation list.
+  ///
+  /// In en, this message translates to:
+  /// **'All at the top'**
+  String get sidebarPresetAllTop;
+
+  /// Status in Sidebar settings when the custom block order does not match a preset.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom layout'**
+  String get sidebarPresetCustom;
+
+  /// Heading above the reorderable sidebar blocks.
+  ///
+  /// In en, this message translates to:
+  /// **'Arrange blocks'**
+  String get sidebarReorderTitle;
+
+  /// Instruction for moving fixed sidebar blocks around the non-draggable conversation list separator.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag above or below the conversation list'**
+  String get sidebarReorderHint;
+
+  /// Accessible label for the reorder handle. Drag it or use Up and Down when focused.
+  ///
+  /// In en, this message translates to:
+  /// **'Reorder'**
+  String get sidebarReorderHandle;
+
+  /// Name of the mobile sidebar block showing the user avatar, name, and settings.
+  ///
+  /// In en, this message translates to:
+  /// **'User bar'**
+  String get sidebarBlockUser;
+
+  /// Name of the mobile sidebar block containing the conversation search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search bar'**
+  String get sidebarBlockSearch;
+
+  /// Name of the mobile sidebar block and settings section for configurable navigation actions.
+  ///
+  /// In en, this message translates to:
+  /// **'Entries'**
+  String get sidebarBlockEntries;
+
+  /// Section title and mobile sidebar block name for the assistant switcher.
+  ///
+  /// In en, this message translates to:
+  /// **'Assistant'**
+  String get sidebarBlockAssistant;
+
+  /// Label of the fixed conversation list separator in the sidebar block reorder control.
+  ///
+  /// In en, this message translates to:
+  /// **'Conversation list'**
+  String get sidebarBlockConversations;
+
+  /// Position tag for a mobile sidebar block above the conversation list.
+  ///
+  /// In en, this message translates to:
+  /// **'Top'**
+  String get sidebarBlockTop;
+
+  /// Position tag for a mobile sidebar block below the conversation list.
+  ///
+  /// In en, this message translates to:
+  /// **'Bottom'**
+  String get sidebarBlockBottom;
+
+  /// Label next to the List or Icons segmented control in the mobile Sidebar settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Display as'**
+  String get sidebarDisplayAs;
+
+  /// Sidebar display style with navigation entries as full-width rows.
+  ///
+  /// In en, this message translates to:
+  /// **'List'**
+  String get sidebarStyleList;
+
+  /// Sidebar display style with navigation entries as icon buttons by the user bar or search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Icons'**
+  String get sidebarStyleIcons;
+
+  /// Short option to make a navigation entry visible directly in the sidebar.
+  ///
+  /// In en, this message translates to:
+  /// **'Show'**
+  String get sidebarVisibilityShow;
+
+  /// Label of the sidebar overflow section for navigation entries moved into an expandable list or menu.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get sidebarMore;
+
+  /// Short option to hide a navigation entry from both the sidebar and its More menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide'**
+  String get sidebarVisibilityHidden;
+
+  /// Subtitle for a visible sidebar action displayed as a row in the entry list.
+  ///
+  /// In en, this message translates to:
+  /// **'Entry list'**
+  String get sidebarLocationEntries;
+
+  /// Subtitle for the history action displayed beside the sidebar search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Beside search'**
+  String get sidebarLocationSearch;
+
+  /// Subtitle for a navigation action displayed as an icon in the mobile sidebar user bar.
+  ///
+  /// In en, this message translates to:
+  /// **'User bar icons'**
+  String get sidebarLocationUserBar;
+
+  /// Subtitle for a sidebar navigation action displayed in the More menu.
+  ///
+  /// In en, this message translates to:
+  /// **'In More'**
+  String get sidebarLocationMore;
+
+  /// Subtitle for a navigation action hidden from the sidebar and its More menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden from the sidebar'**
+  String get sidebarLocationHidden;
+
+  /// Heading of the desktop sidebar customization panel and subtitle for a visible icon rail entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Left icon rail'**
+  String get sidebarLocationRail;
+
+  /// Context menu action that moves a navigation entry into the directly visible sidebar.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in sidebar'**
+  String get sidebarMenuShow;
+
+  /// Context menu action that moves a sidebar navigation entry into the More menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to More'**
+  String get sidebarMenuMore;
+
+  /// Context menu action that hides a navigation entry from the sidebar and More menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide from sidebar'**
+  String get sidebarMenuHide;
+
+  /// Long-press action hiding the Customize sidebar shortcut from the More menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide from More'**
+  String get sidebarHideCustomize;
+
+  /// Switch controlling the presence of the Customize sidebar shortcut in the mobile sidebar More entries.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Customize sidebar in More'**
+  String get sidebarShowCustomizeInMore;
+
+  /// Subtitle reassuring users that they can still reach Sidebar settings after hiding the shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'You can always change it here'**
+  String get sidebarShowCustomizeInMoreHint;
+
+  /// Switch for hiding the assistant selector when the user has only one assistant.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide assistant row when there is only one'**
+  String get sidebarHideSingleAssistant;
+
+  /// Description of the normal behavior for the single-assistant selector.
+  ///
+  /// In en, this message translates to:
+  /// **'The assistant row is shown by default'**
+  String get sidebarHideSingleAssistantHint;
+
+  /// Action in the desktop sidebar customization panel to restore the default navigation icon order and visibility.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore defaults'**
+  String get sidebarRestoreDefaults;
+
+  /// Action in the mobile long-press menu on Customize sidebar. Opens Settings > Display > Sidebar.
+  ///
+  /// In en, this message translates to:
+  /// **'Open sidebar settings…'**
+  String get sidebarOpenSettings;
+
+  /// Title and Palette navigation entry for the image and video creation experience.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get creationTitle;
+
+  /// Section and mobile tab for media creation topics grouped by creative project.
+  ///
+  /// In en, this message translates to:
+  /// **'Topics'**
+  String get creationTopics;
+
+  /// Action and desktop header for starting a separate media creation topic.
+  ///
+  /// In en, this message translates to:
+  /// **'New topic'**
+  String get creationNewTopic;
+
+  /// Subtitle for a new media creation topic before its first generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Named after the first prompt'**
+  String get creationNameAfterSending;
+
+  /// Subtitle for the new creation topic when automatic naming is disabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Uses the start of your prompt as the title'**
+  String get creationPromptTitle;
+
+  /// Search input hint in the creation topic rail and mobile creation home.
+  ///
+  /// In en, this message translates to:
+  /// **'Search topics and prompts'**
+  String get creationSearchTopics;
+
+  /// Empty state inside the topic sidebar before any creations have been made.
+  ///
+  /// In en, this message translates to:
+  /// **'Topics appear here after your first prompt'**
+  String get creationTopicsEmpty;
+
+  /// Status in the creation header while a model is naming a new topic.
+  ///
+  /// In en, this message translates to:
+  /// **'Naming topic…'**
+  String get creationNaming;
+
+  /// Action that renames a media creation topic.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename topic'**
+  String get creationRenameTopic;
+
+  /// Destructive action and confirmation title for deleting a topic, its generation groups, and media files.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete topic'**
+  String get creationDeleteTopic;
+
+  /// Confirmation body for deleting an entire media creation topic.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this topic and all its creations?'**
+  String get creationDeleteTopicBody;
+
+  /// Image mode in the creation composer. Produces still images.
+  ///
+  /// In en, this message translates to:
+  /// **'Image'**
+  String get creationImage;
+
+  /// Video mode in the creation composer. Produces moving clips.
+  ///
+  /// In en, this message translates to:
+  /// **'Video'**
+  String get creationVideo;
+
+  /// Image composer text field hint inside an existing creation topic.
+  ///
+  /// In en, this message translates to:
+  /// **'Describe the image to create'**
+  String get creationImagePrompt;
+
+  /// Video composer text field hint inside an existing creation topic.
+  ///
+  /// In en, this message translates to:
+  /// **'Describe the video to generate'**
+  String get creationVideoPrompt;
+
+  /// Image composer text field hint when sending will create a new topic.
+  ///
+  /// In en, this message translates to:
+  /// **'Describe an image to start a new topic'**
+  String get creationNewImagePrompt;
+
+  /// Video composer text field hint when sending will create a new topic.
+  ///
+  /// In en, this message translates to:
+  /// **'Describe a video to start a new topic'**
+  String get creationNewVideoPrompt;
+
+  /// Tooltip and empty label of the model control in the creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Select model'**
+  String get creationSelectModel;
+
+  /// Hint in the media model selection popover or sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Search models or providers'**
+  String get creationSearchModels;
+
+  /// Empty state title when no enabled provider has a model for the selected media mode.
+  ///
+  /// In en, this message translates to:
+  /// **'No image or video models yet'**
+  String get creationNoModelTitle;
+
+  /// Empty state help for configuring media models.
+  ///
+  /// In en, this message translates to:
+  /// **'Create uses image and video models configured in Providers. Sign in with a subscription, or enter an API key for fal or another provider.'**
+  String get creationNoModelBody;
+
+  /// Empty creation topic or workbench headline.
+  ///
+  /// In en, this message translates to:
+  /// **'Start with an idea'**
+  String get creationEmptyTitle;
+
+  /// Empty creation workbench text explaining that the first prompt starts a topic and later edits are grouped there.
+  ///
+  /// In en, this message translates to:
+  /// **'Describe what to create. Sending the first prompt starts a topic for the result and later edits.'**
+  String get creationEmptyBody;
+
+  /// Accessible label for the creation composer action that selects an image file as a reference.
+  ///
+  /// In en, this message translates to:
+  /// **'Add reference image'**
+  String get creationAddReference;
+
+  /// Message displayed by the creation composer if the selected reference images exceed the combined request budget of 20 MiB.
+  ///
+  /// In en, this message translates to:
+  /// **'Reference images must total 20 MB or less.'**
+  String get creationReferenceTooLarge;
+
+  /// Provider model settings field that selects the wire protocol used for this model in the image or video creation workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'Creation API protocol'**
+  String get creationApiProtocol;
+
+  /// Help beneath the creation API protocol setting explaining when to override automatic routing for a third-party gateway.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto uses the provider’s API. For a custom gateway, choose the protocol listed in its documentation.'**
+  String get creationApiProtocolHelp;
+
+  /// Heading of the media aspect ratio picker.
+  ///
+  /// In en, this message translates to:
+  /// **'Aspect ratio'**
+  String get creationAspectRatio;
+
+  /// Heading of the number of images picker.
+  ///
+  /// In en, this message translates to:
+  /// **'Image count'**
+  String get creationCountLabel;
+
+  /// Title of the duration picker in the video creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Duration'**
+  String get creationDuration;
+
+  /// Video clip duration shown in the composer or a generation group.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds, plural, one{1 second} other{{seconds} seconds}}'**
+  String creationDurationSeconds(int seconds);
+
+  /// Title of the resolution picker in the video creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolution'**
+  String get creationResolution;
+
+  /// Switch for choosing first and last video reference frames.
+  ///
+  /// In en, this message translates to:
+  /// **'First and last frames'**
+  String get creationFirstLastFrame;
+
+  /// Video composer toggle and slot label for the starting image.
+  ///
+  /// In en, this message translates to:
+  /// **'First frame'**
+  String get creationFirstFrame;
+
+  /// Video composer slot label for the ending image.
+  ///
+  /// In en, this message translates to:
+  /// **'Last frame'**
+  String get creationLastFrame;
+
+  /// Instruction beside the video frame slots for a model that requires both a start image and an end image.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose both a first and a last frame.'**
+  String get creationBothFramesRequired;
+
+  /// Hint for video models that require a first frame when a last frame is attached.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a first frame. The last frame is optional.'**
+  String get creationFirstFrameRequired;
+
+  /// Hint for video models that accept only a first frame.
+  ///
+  /// In en, this message translates to:
+  /// **'This model supports a first frame.'**
+  String get creationFirstFrameOnly;
+
+  /// Title of the image model picker in Creation.
+  ///
+  /// In en, this message translates to:
+  /// **'Image models'**
+  String get creationImageModels;
+
+  /// Title of the video model picker in Creation.
+  ///
+  /// In en, this message translates to:
+  /// **'Video models'**
+  String get creationVideoModels;
+
+  /// Play button tooltip in the embedded generated video player.
+  ///
+  /// In en, this message translates to:
+  /// **'Play video'**
+  String get creationPlayVideo;
+
+  /// Pause button tooltip in the embedded generated video player.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause video'**
+  String get creationPauseVideo;
+
+  /// Mute button tooltip in the embedded generated video player.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute'**
+  String get creationMuteVideo;
+
+  /// Unmute button tooltip in the embedded generated video player.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmute'**
+  String get creationUnmuteVideo;
+
+  /// Action on a video cover that opens the file in the operating system player.
+  ///
+  /// In en, this message translates to:
+  /// **'Open in system player'**
+  String get creationOpenVideo;
+
+  /// Button tooltip to play a generated video in a full-window view.
+  ///
+  /// In en, this message translates to:
+  /// **'Full screen'**
+  String get creationFullScreen;
+
+  /// Button tooltip to close the full-window generated video player.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit full screen'**
+  String get creationExitFullScreen;
+
+  /// Menu action to save a generated video to a file or the photo library.
+  ///
+  /// In en, this message translates to:
+  /// **'Save video'**
+  String get creationSaveVideo;
+
+  /// Compact mobile composer action opening all generation parameters.
+  ///
+  /// In en, this message translates to:
+  /// **'Generation options'**
+  String get creationParameters;
+
+  /// Default aspect ratio that lets a media provider pick image dimensions.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get creationAuto;
+
+  /// Submit button in the creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate'**
+  String get creationGenerate;
+
+  /// First waiting-card headline for a running image generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Creating image'**
+  String get creationWaitingImage;
+
+  /// First waiting-card headline for a running video generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing video'**
+  String get creationWaitingVideo;
+
+  /// Status when media generation has completed and outputs are being saved.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading'**
+  String get creationDownloading;
+
+  /// Status title for a failed media generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Generation failed'**
+  String get creationFailed;
+
+  /// Status title for a media generation unfinished at the last app shutdown.
+  ///
+  /// In en, this message translates to:
+  /// **'Generation interrupted when the app closed'**
+  String get creationInterrupted;
+
+  /// Status title for a generation cancelled by the user.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get creationCancelled;
+
+  /// Status title when some outputs of a media generation were saved and other outputs failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Some results could not be saved'**
+  String get creationPartial;
+
+  /// Action that retries a failed, partial, interrupted, or cancelled media generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get creationRetry;
+
+  /// Copies the prompt of a media generation to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy prompt'**
+  String get creationCopyPrompt;
+
+  /// Save a creation to a local file or the photo library.
+  ///
+  /// In en, this message translates to:
+  /// **'Save image'**
+  String get creationSaveImage;
+
+  /// Copies the generated image to the system clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy image'**
+  String get creationCopyImage;
+
+  /// Shares a generated image file.
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get creationShare;
+
+  /// Action and confirmation title for deleting one generated image or video.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete creation'**
+  String get creationDeleteItem;
+
+  /// Confirmation text for deleting one generated image or video.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this creation?'**
+  String get creationDeleteItemBody;
+
+  /// Fallback failure toast for a local creation action, such as saving or deleting a file.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not complete the action'**
+  String get creationActionFailed;
+
+  /// Toast after successfully saving a creation to a file or photo library.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved'**
+  String get creationOptionSaved;
+
+  /// Toast after copying a prompt or creation image.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied'**
+  String get creationOptionCopied;
+
+  /// Backup scope category for media creation topics, generation records, and generated files.
+  ///
+  /// In en, this message translates to:
+  /// **'Creations'**
+  String get backupScopeCreations;
+
+  /// Waiting-card headline before a media generation starts. count is the number of jobs ahead in the queue.
+  ///
+  /// In en, this message translates to:
+  /// **'Queued · {count} ahead'**
+  String creationQueuePosition(int count);
+
+  /// Number of images requested in a creation batch. count is the image quantity.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 image} other{{count} images}}'**
+  String creationImagesCount(int count);
+
+  /// Number of generations in one creation topic. count is the number of batches.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 generation} other{{count} generations}}'**
+  String creationGenerationCount(int count);
+
+  /// Number of saved outputs in a creation topic. count is the number of available media files.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 creation} other{{count} creations}}'**
+  String creationWorksCount(int count);
+
+  /// Header above the media topic cards. count is the number of topics shown.
+  ///
+  /// In en, this message translates to:
+  /// **'Topics {count}'**
+  String creationTopicCount(int count);
+
+  /// Tooltip and title for advanced controls in the creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'More options'**
+  String get creationMoreOptions;
+
+  /// Image size control in the creation generation options.
+  ///
+  /// In en, this message translates to:
+  /// **'Image size'**
+  String get creationImageSize;
+
+  /// Image rendering quality control in the creation generation options.
+  ///
+  /// In en, this message translates to:
+  /// **'Quality'**
+  String get creationQuality;
+
+  /// Choice for a low rendering quality in the creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Low'**
+  String get creationLowQuality;
+
+  /// Choice for medium rendering quality in the creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Medium'**
+  String get creationMediumQuality;
+
+  /// Choice for high rendering quality in the creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'High'**
+  String get creationHighQuality;
+
+  /// Control for what the user wants to avoid in a generated image or video.
+  ///
+  /// In en, this message translates to:
+  /// **'Negative prompt'**
+  String get creationNegativePrompt;
+
+  /// Numeric seed input for repeatable image or video generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Seed'**
+  String get creationSeed;
+
+  /// Toggle requesting transparency in generated images.
+  ///
+  /// In en, this message translates to:
+  /// **'Transparent background'**
+  String get creationTransparentBackground;
+
+  /// Choice of encoding for the generated image file.
+  ///
+  /// In en, this message translates to:
+  /// **'Output format'**
+  String get creationOutputFormat;
+
+  /// Text field label for a JSON object merged into the provider request.
+  ///
+  /// In en, this message translates to:
+  /// **'Extra parameters (JSON)'**
+  String get creationExtraJson;
+
+  /// Description beneath the model editor's extra JSON input.
+  ///
+  /// In en, this message translates to:
+  /// **'These values are sent with each request. You can override them in More options.'**
+  String get creationExtraJsonHint;
+
+  /// Status banner in the generation options section when Kelivo knows the model schema.
+  ///
+  /// In en, this message translates to:
+  /// **'Defaults come from Kelivo’s built-in model data. Changes apply to this model only.'**
+  String get creationModelKnown;
+
+  /// Status banner for a manually added media model without a built-in schema.
+  ///
+  /// In en, this message translates to:
+  /// **'Kelivo filled in common parameters. You can adjust them using your provider’s documentation.'**
+  String get creationModelUnknown;
+
+  /// Model editor field for the number of images a single API request can produce.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum per request'**
+  String get creationMaxPerRequest;
+
+  /// Explains automatic batching in the media model options editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Larger batches are split into multiple requests and kept in one group.'**
+  String get creationMaxPerRequestHelp;
+
+  /// Model editor field for the maximum number of input images accepted by this model.
+  ///
+  /// In en, this message translates to:
+  /// **'Reference images'**
+  String get creationReferenceLimit;
+
+  /// Explains the effect of zero reference images in the media model editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Set to zero to hide reference images and editing for this model.'**
+  String get creationReferenceLimitHelp;
+
+  /// Explains the selected aspect ratio choices in the media model editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Select the ratios available in Create. Auto lets the model decide.'**
+  String get creationRatioHelp;
+
+  /// Heading for the extra capability switches in the media model editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Other options'**
+  String get creationMediaOther;
+
+  /// Supporting text under capability switches when editing a media model.
+  ///
+  /// In en, this message translates to:
+  /// **'Show this control in More options.'**
+  String get creationEnableOptionHelp;
+
+  /// Help under the image model type. Ordinary chat model pickers exclude this model type.
+  ///
+  /// In en, this message translates to:
+  /// **'Image models appear in Create and in the Image Generation tool.'**
+  String get creationImageTypeHelp;
+
+  /// Help under the video model type. Ordinary chat model pickers exclude this model type.
+  ///
+  /// In en, this message translates to:
+  /// **'Video models appear in Create.'**
+  String get creationVideoTypeHelp;
+
+  /// Placeholder in the API key field for the built-in fal provider.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a key in fal.ai › Dashboard › API Keys'**
+  String get creationFalKeyHint;
+
+  /// Hint above the fal provider model list explaining live catalog discovery with Fetch and manual entry of a fal endpoint ID with the plus button.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Fetch to browse fal’s live catalog, or use + to add a model by its endpoint ID.'**
+  String get creationFalCatalogHint;
+
+  /// Message when adding a fal endpoint whose required input is unavailable in Creation. The field is the API parameter name.
+  ///
+  /// In en, this message translates to:
+  /// **'This model requires {field}, which Creation cannot supply.'**
+  String falUnsupportedInput(String field);
+
+  /// Message when adding a fal endpoint that returns unsupported results, such as segmentation data or vector files.
+  ///
+  /// In en, this message translates to:
+  /// **'This model does not return an image or video that Creation can save.'**
+  String get falUnsupportedOutput;
+
+  /// Heading above advanced controls from the selected fal model’s published input schema in Creation.
+  ///
+  /// In en, this message translates to:
+  /// **'Additional Settings'**
+  String get falAdditionalSettings;
+
+  /// Tooltip for reloading the selected fal model’s published parameter definitions.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh model settings'**
+  String get falRefreshAdditionalSettings;
+
+  /// Status under the Creation settings heading for a private or unlisted fal endpoint.
+  ///
+  /// In en, this message translates to:
+  /// **'fal has not published settings for this endpoint.'**
+  String get falNoPublishedSettings;
+
+  /// Status after loading a fal schema with no model-specific controls beyond the standard Creation inputs.
+  ///
+  /// In en, this message translates to:
+  /// **'This model has no additional settings.'**
+  String get falNoAdditionalSettings;
+
+  /// Action in a finished fal video generation's menu which copies the provider's draft ID for completing that draft.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy draft ID'**
+  String get falCopyDraftId;
+
+  /// Creation composer placeholder when the selected fal endpoint accepts an optional text prompt, such as a cutout or a model with separate multi-shot prompts.
+  ///
+  /// In en, this message translates to:
+  /// **'Prompt (optional)'**
+  String get falOptionalPrompt;
+
+  /// Label for the fal watermark switch, which adds a visible provider watermark to generated images.
+  ///
+  /// In en, this message translates to:
+  /// **'Watermark'**
+  String get falWatermark;
+
+  /// Label for the fal sync_mode switch, which returns generated media inline as data URIs.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Mode'**
+  String get falSyncMode;
+
+  /// Label for the fal input/output content safety checker switch. The provider controls whether the account can disable checking.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable Safety Checker'**
+  String get falSafetyChecker;
+
+  /// Save-button label while looking up the schema of a manually entered fal model ID.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking model…'**
+  String get falCheckingModel;
+
+  /// Validation error in the model editor when the fal endpoint ID is malformed. Keep the example ID unchanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a fal endpoint ID, such as fal-ai/flux/dev.'**
+  String get falInvalidEndpointId;
+
+  /// Composer placeholder for models that use reference images without a text prompt. This optional title stays in the user’s workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Name this work (optional)'**
+  String get creationOptionalTitle;
+
+  /// Button at the bottom of the fal catalog that loads the next page of matching endpoints.
+  ///
+  /// In en, this message translates to:
+  /// **'Load more models'**
+  String get falCatalogMore;
+
+  /// Empty search result in the fal model picker when the active catalog has no matching creation endpoints.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching image or video models'**
+  String get falCatalogNoMatch;
+
+  /// Network or catalog error in the fal model picker. The error placeholder contains the reason returned by the client.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load fal model data ({error})'**
+  String falCatalogLoadFailed(String error);
+
+  /// Placeholder segment in the built-in fal provider's request URL preview.
+  ///
+  /// In en, this message translates to:
+  /// **'model ID'**
+  String get creationFalModelId;
+
+  /// Button for the provider-specific file parameter in More options.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose image'**
+  String get creationSelectPlatformImage;
+
+  /// Section label for the schema-driven options in the creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Model-specific options'**
+  String get creationPlatformOptions;
+
+  /// Label for a provider-specific field that must be filled before generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Required'**
+  String get creationParameterRequired;
+
+  /// Background choice group for image generation in the composer More options panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Background'**
+  String get creationBackground;
+
+  /// Choice requesting an opaque background for a generated image.
+  ///
+  /// In en, this message translates to:
+  /// **'Opaque'**
+  String get creationOpaqueBackground;
+
+  /// Choice requesting a transparent background for a generated image.
+  ///
+  /// In en, this message translates to:
+  /// **'Transparent'**
+  String get creationTransparentOption;
+
+  /// Badge in the Create model picker for a chat model that also generates images.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat model'**
+  String get creationChatModelBadge;
+
+  /// Heading above the shared provider-independent controls in the composer More options panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Common options'**
+  String get creationCommonOptions;
+
+  /// Message under Common options in the composer when the current model exposes only model-specific or JSON options.
+  ///
+  /// In en, this message translates to:
+  /// **'This model has no common options.'**
+  String get creationNoCommonOptions;
+
+  /// Gallery destination and header listing saved image and video creations.
+  ///
+  /// In en, this message translates to:
+  /// **'All creations'**
+  String get creationGallery;
+
+  /// First filter in the Create gallery, showing every saved creation.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get creationFilterAll;
+
+  /// Filter for saved images in the Create gallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Images'**
+  String get creationFilterImages;
+
+  /// Filter for saved videos in the Create gallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Videos'**
+  String get creationFilterVideos;
+
+  /// Filter for starred creations in the Create gallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get creationFilterFavorites;
+
+  /// Placeholder in the Create gallery search box.
+  ///
+  /// In en, this message translates to:
+  /// **'Search prompts or topics'**
+  String get creationSearchGallery;
+
+  /// Empty Create gallery title before the user has generated media.
+  ///
+  /// In en, this message translates to:
+  /// **'No creations yet'**
+  String get creationGalleryEmpty;
+
+  /// Empty message for the favorites filter in Create.
+  ///
+  /// In en, this message translates to:
+  /// **'No favorites yet'**
+  String get creationFavoritesEmpty;
+
+  /// Create gallery message when search or filtering returns no results.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching creations'**
+  String get creationGalleryNoResults;
+
+  /// Lightbox action that opens the parent topic and scrolls to the selected item's batch.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in topic'**
+  String get creationShowInTopic;
+
+  /// Star the selected creation from its media card or lightbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorite'**
+  String get creationFavorite;
+
+  /// Remove the star from the selected creation.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove favorite'**
+  String get creationUnfavorite;
+
+  /// Confirmation after starring a creation.
+  ///
+  /// In en, this message translates to:
+  /// **'Added to favorites'**
+  String get creationFavorited;
+
+  /// Confirmation after removing a creation's star.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed from favorites'**
+  String get creationUnfavorited;
+
+  /// Group heading for topic layout choices in the Create menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Topic display'**
+  String get creationTopicDisplay;
+
+  /// Topic display option showing artwork covers plus metadata.
+  ///
+  /// In en, this message translates to:
+  /// **'Covers and titles'**
+  String get creationCoversAndTitles;
+
+  /// Compact topic display option showing only covers.
+  ///
+  /// In en, this message translates to:
+  /// **'Covers only'**
+  String get creationCoversOnly;
+
+  /// Topic display option with one compact row per topic.
+  ///
+  /// In en, this message translates to:
+  /// **'List'**
+  String get creationTopicList;
+
+  /// Toggle in the Create menu for naming a topic with the title summary model.
+  ///
+  /// In en, this message translates to:
+  /// **'Name topics automatically'**
+  String get creationAutoTitle;
+
+  /// Explains automatic naming beneath its toggle in the Create menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the title summary model to name a topic from its first prompt.'**
+  String get creationAutoTitleHelp;
+
+  /// Explains the fallback when automatic naming is turned off.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the beginning of the first prompt as the title.'**
+  String get creationAutoTitleOffHelp;
+
+  /// Choice after the standard quantities in the image count control.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get creationCustomCount;
+
+  /// Caption next to the custom image count stepper.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to 16'**
+  String get creationCustomCountMaximum;
+
+  /// Batch count panel information showing the model name, per-request limit, and planned request count.
+  ///
+  /// In en, this message translates to:
+  /// **'{model} produces up to {limit} images per request. {requests} requests will be grouped together.'**
+  String creationRequestSplit(String model, int limit, int requests);
+
+  /// Disabled composer placeholder when there are no eligible models.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a model that can create media first'**
+  String get creationNoModelPlaceholder;
+
+  /// Create empty-state button to open ChatGPT subscription sign-in.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to ChatGPT'**
+  String get creationConnectChatGPT;
+
+  /// Create empty-state button to open Grok subscription sign-in.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to Grok'**
+  String get creationConnectGrok;
+
+  /// Create empty-state button opening the built-in fal provider settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up fal'**
+  String get creationConfigureFal;
+
+  /// Create empty-state action opening the providers list.
+  ///
+  /// In en, this message translates to:
+  /// **'Other providers'**
+  String get creationOtherProviders;
+
+  /// Desktop reference source option to pick one or more local images.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose files…'**
+  String get creationChooseReferenceFile;
+
+  /// Mobile action to pick reference images from the photo library.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose from Photos'**
+  String get creationChooseFromLibrary;
+
+  /// Mobile reference action to capture an image using the camera.
+  ///
+  /// In en, this message translates to:
+  /// **'Take a photo'**
+  String get creationTakeReferencePhoto;
+
+  /// Reference source action that reads a local image from the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste image'**
+  String get creationPasteReference;
+
+  /// Picker title for recent images from creations and chat.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent images'**
+  String get creationRecentImages;
+
+  /// Drag overlay when dropping images into the Create workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'Drop to add reference images'**
+  String get creationReferenceDrop;
+
+  /// Drag overlay in video mode when dropping a first-frame image.
+  ///
+  /// In en, this message translates to:
+  /// **'Drop to set the first frame'**
+  String get creationFirstFrameDrop;
+
+  /// Supporting text at the bottom of the desktop Add references menu.
+  ///
+  /// In en, this message translates to:
+  /// **'You can also drop images onto Create.'**
+  String get creationReferenceDropHint;
+
+  /// Toast when the user invokes Paste image but the clipboard contains no supported image.
+  ///
+  /// In en, this message translates to:
+  /// **'No image on the clipboard'**
+  String get creationNoClipboardImage;
+
+  /// Toast after copying a creation or selected file into the current draft references.
+  ///
+  /// In en, this message translates to:
+  /// **'Added to references'**
+  String get creationReferenceAdded;
+
+  /// Toast in the creation composer when all selected pictures are already attached to this draft or frame.
+  ///
+  /// In en, this message translates to:
+  /// **'Already in your references'**
+  String get creationReferenceAlreadyAdded;
+
+  /// Toast shown when adding more reference images than the model accepts. count is its total limit.
+  ///
+  /// In en, this message translates to:
+  /// **'This model accepts up to {count} reference images.'**
+  String creationReferenceLimitReached(int count);
+
+  /// Warning in a draft with saved references after switching to a model that cannot accept them.
+  ///
+  /// In en, this message translates to:
+  /// **'{model} does not support reference images'**
+  String creationReferenceUnsupported(String model);
+
+  /// Help beside dimmed reference thumbnails for a model without reference input.
+  ///
+  /// In en, this message translates to:
+  /// **'Your references stay in the draft. A model that accepts them can use them.'**
+  String get creationReferenceIgnored;
+
+  /// Recent image source filter and label for pictures from conversations.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat'**
+  String get creationRecentChat;
+
+  /// Recent image source filter and label for pictures from generation history.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get creationRecentCreation;
+
+  /// Hint in the recent images picker. count is the number of free reference slots in this draft.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose up to {count} more'**
+  String creationReferenceSlotsAvailable(int count);
+
+  /// Footer hint in the recent images picker before the user has selected an image.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap an image to select it'**
+  String get creationTapToSelect;
+
+  /// Number of selected images in the recent image picker footer.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} selected'**
+  String creationSelectedImages(int count);
+
+  /// Confirm action in the recent image picker. count is the number of selected images.
+  ///
+  /// In en, this message translates to:
+  /// **'Add ({count})'**
+  String creationAddSelected(int count);
+
+  /// Empty recent reference picker message when the selected source has no files.
+  ///
+  /// In en, this message translates to:
+  /// **'No recent images'**
+  String get creationRecentEmpty;
+
+  /// Action and title for the creation image editor in the lightbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit image'**
+  String get creationEditImage;
+
+  /// Media action that appends an image to the open draft or sets its first frame.
+  ///
+  /// In en, this message translates to:
+  /// **'Use as reference'**
+  String get creationUseReference;
+
+  /// Selected image caption in the lightbox editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Editing with this image'**
+  String get creationEditReference;
+
+  /// Prompt field for editing a generated image.
+  ///
+  /// In en, this message translates to:
+  /// **'What should change?'**
+  String get creationEditPrompt;
+
+  /// Example placeholder in the lightbox edit prompt field.
+  ///
+  /// In en, this message translates to:
+  /// **'For example, use a beach background and keep the person and lighting'**
+  String get creationEditPromptExample;
+
+  /// Choice to match the original image's aspect ratio when editing.
+  ///
+  /// In en, this message translates to:
+  /// **'Original ratio'**
+  String get creationEditOriginalRatio;
+
+  /// Submits an edit as a new generation batch in the source topic.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate a new group'**
+  String get creationEditNewGroup;
+
+  /// Note below the lightbox edit options explaining where the result appears.
+  ///
+  /// In en, this message translates to:
+  /// **'The edit appears as a new group in this topic.'**
+  String get creationEditHelp;
+
+  /// Toast after submitting an edit from the lightbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Editing started. The result will appear at the bottom of this topic.'**
+  String get creationEditStarted;
+
+  /// Metadata label in the creation lightbox marking an artwork generated by editing an earlier image.
+  ///
+  /// In en, this message translates to:
+  /// **'Edited result'**
+  String get creationEditedResult;
+
+  /// Label identifying the source image for a generation produced by an edit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edited from'**
+  String get creationEditedFrom;
+
+  /// Start a new batch using the same prompt, model parameters, and references.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate again'**
+  String get creationRepeat;
+
+  /// Destructive action in the generation group menu and title of its confirmation dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete group'**
+  String get creationDeleteBatch;
+
+  /// Confirmation before deleting a generation group from this device. The count is the number of stored result files. A failed group can have none.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Delete this generation record from this device?} one{Delete this group and its file from this device?} other{Delete this group and its {count} files from this device?}}'**
+  String creationDeleteBatchBody(int count);
+
+  /// Title and action for redacted diagnostics of a failed generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Request details'**
+  String get creationRequestDetails;
+
+  /// Shown when an older failed batch has no recorded protocol details.
+  ///
+  /// In en, this message translates to:
+  /// **'No request details are available.'**
+  String get creationNoRequestDetails;
+
+  /// Label next to the reference strip. count is selected and limit is supported by the active model.
+  ///
+  /// In en, this message translates to:
+  /// **'References {count} / {limit}'**
+  String creationReferenceSummary(int count, int limit);
+
+  /// Lightbox shortcut/button for navigating to the previous creation.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous creation'**
+  String get creationPrevious;
+
+  /// Lightbox shortcut/button for navigating to the next creation.
+  ///
+  /// In en, this message translates to:
+  /// **'Next creation'**
+  String get creationNext;
+
+  /// Rotating creation status after an image is started.
+  ///
+  /// In en, this message translates to:
+  /// **'Sketching the composition'**
+  String get creationWaitingSketch;
+
+  /// Rotating status during image generation after sketching.
+  ///
+  /// In en, this message translates to:
+  /// **'Refining the details'**
+  String get creationWaitingDetails;
+
+  /// Rotating status near the end of image generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing the image'**
+  String get creationWaitingFinish;
+
+  /// Rotating status during video generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Planning the motion'**
+  String get creationWaitingVideoMotion;
+
+  /// Rotating status during video generation after planning.
+  ///
+  /// In en, this message translates to:
+  /// **'Generating frames'**
+  String get creationWaitingVideoFrames;
+
+  /// Rotating status toward the end of video generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing the video'**
+  String get creationWaitingVideoFinish;
+
+  /// Rotating status after media generation takes longer than estimated.
+  ///
+  /// In en, this message translates to:
+  /// **'Taking a little longer'**
+  String get creationWaitingLong;
+
+  /// Prompt suggestion in the empty Create workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'Design a minimalist concert poster'**
+  String get creationSuggestionPoster;
+
+  /// Prompt suggestion in the empty Create workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'Paint a mountain village at dawn'**
+  String get creationSuggestionLandscape;
+
+  /// Prompt suggestion in the empty Create workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'Photograph a ceramic cup in soft daylight'**
+  String get creationSuggestionProduct;
+
+  /// Prompt suggestion in the empty Create workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'Illustrate a fox under a starry sky'**
+  String get creationSuggestionIllustration;
+
+  /// Prompt suggestion in the empty Create workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'Sketch a reading nook with warm wood'**
+  String get creationSuggestionRoom;
+
+  /// Prompt suggestion in the empty Create workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'Make a set of playful plant stickers'**
+  String get creationSuggestionSticker;
+
+  /// Video prompt suggestion in the empty workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'A slow push in on a rainy garden'**
+  String get creationSuggestionMotion;
+
+  /// Video prompt suggestion in the empty workbench.
+  ///
+  /// In en, this message translates to:
+  /// **'Waves rolling onto a beach at sunset'**
+  String get creationSuggestionOcean;
+
+  /// The rotating image waiting label at 20 seconds.
+  ///
+  /// In en, this message translates to:
+  /// **'Generating the first draft'**
+  String get creationWaitingDraft;
+
+  /// The rotating image waiting label at 25 seconds.
+  ///
+  /// In en, this message translates to:
+  /// **'Setting up the scene'**
+  String get creationWaitingScene;
+
+  /// The rotating video waiting label at 25 seconds.
+  ///
+  /// In en, this message translates to:
+  /// **'Rendering motion'**
+  String get creationWaitingVideoRendering;
+
+  /// The rotating video waiting label at 30 seconds.
+  ///
+  /// In en, this message translates to:
+  /// **'Compositing the video'**
+  String get creationWaitingVideoComposite;
+
+  /// The rotating waiting label at 35 seconds for images and video.
+  ///
+  /// In en, this message translates to:
+  /// **'Almost done'**
+  String get creationWaitingNearlyDone;
+
+  /// Action in the generation group menu adding its ready images to the current draft. count is the number of images in the group.
+  ///
+  /// In en, this message translates to:
+  /// **'Use all {count} as references'**
+  String creationUseGroupReferences(int count);
+
+  /// Placeholder inside a partial generation group for a result that could not be saved.
+  ///
+  /// In en, this message translates to:
+  /// **'Download failed'**
+  String get creationDownloadFailed;
+
+  /// Badge in creation diagnostics for errors that allow automatic retries.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic retry'**
+  String get creationAutomaticRetry;
+
+  /// Badge in creation diagnostics for errors that require a manual retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Manual retry'**
+  String get creationNoAutomaticRetry;
+
+  /// Heading of the list of automatic retry attempts in creation request details.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry history'**
+  String get creationRetryHistory;
+
+  /// Heading for the redacted request method, host, and route in creation request details.
+  ///
+  /// In en, this message translates to:
+  /// **'Request metadata'**
+  String get creationLoggedRequest;
+
+  /// Heading for response status information in creation request details.
+  ///
+  /// In en, this message translates to:
+  /// **'Response metadata'**
+  String get creationLoggedResponse;
+
+  /// Title of the default model card for image creation and the generate_image tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Image generation model'**
+  String get creationDefaultImage;
+
+  /// Subtitle of the default image generation model card.
+  ///
+  /// In en, this message translates to:
+  /// **'Used for images in Creation and the image generation tool in chat.'**
+  String get creationDefaultImageHelp;
+
+  /// Title of the default model card for video creation.
+  ///
+  /// In en, this message translates to:
+  /// **'Video generation model'**
+  String get creationDefaultVideo;
+
+  /// Subtitle of the default video generation model card.
+  ///
+  /// In en, this message translates to:
+  /// **'Used in video mode in Creation.'**
+  String get creationDefaultVideoHelp;
+
+  /// Title of the default model card and prompt template editor for refining creation prompts.
+  ///
+  /// In en, this message translates to:
+  /// **'Prompt enhancement model'**
+  String get creationDefaultEnhance;
+
+  /// Subtitle of the default prompt enhancement model card.
+  ///
+  /// In en, this message translates to:
+  /// **'Refines prompts in Creation. Reference images are included if this model supports image input.'**
+  String get creationDefaultEnhanceHelp;
+
+  /// Help under the prompt enhancement template. The variable placeholder is the literal template marker {prompt}.
+  ///
+  /// In en, this message translates to:
+  /// **'Use {variable} for the current creation prompt.'**
+  String creationEnhanceTemplateVariable(String variable);
+
+  /// Assistant local tool name and chat tools menu label for generate_image.
+  ///
+  /// In en, this message translates to:
+  /// **'Image generation'**
+  String get creationLocalToolTitle;
+
+  /// Help below the image generation toggle in the assistant local tools tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Let this assistant draw or edit images in chat using the default image generation model.'**
+  String get creationLocalToolHelp;
+
+  /// Count of files on disk within one generation in Storage > Creation, including artwork, references and thumbnails.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 file} other{{count} files}}'**
+  String creationStorageFileCount(int count);
+
+  /// Action in the chat tools panel and assistant settings that opens the default image model picker.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a default image model'**
+  String get creationSelectDefaultImage;
+
+  /// Notification when configuring the chat image tool and there are no eligible image models in any provider.
+  ///
+  /// In en, this message translates to:
+  /// **'Add or enable an image model in Providers first.'**
+  String get creationConfigureImageProvider;
+
+  /// Chat item display setting. When on, each image result appears at its tool call in the reply. When off, images are grouped below the reply.
+  ///
+  /// In en, this message translates to:
+  /// **'Show generated images at the tool call'**
+  String get displayChatImagesAtToolCall;
+
+  /// Chat item display switch for the image count, model name and aspect ratio below generated images.
+  ///
+  /// In en, this message translates to:
+  /// **'Show generated image details'**
+  String get displayChatImageInfo;
+
+  /// Chat item display switch for the link from a generated image to its source in Creation.
+  ///
+  /// In en, this message translates to:
+  /// **'Show link to Creation'**
+  String get displayChatImageLink;
+
+  /// Warning below the assistant image generation toggle when no usable default image model is configured.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an image generation model in Default models first.'**
+  String get creationLocalToolNeedsModel;
+
+  /// Gallery source label for an image generated inside a chat. The title is the conversation name.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat · {title}'**
+  String creationChatSource(String title);
+
+  /// Menu item on a creation image that switches to chat and adds the image to the composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Send to chat'**
+  String get creationSendToChat;
+
+  /// Gallery viewer action that opens the chat and scrolls to the message that generated the artwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in conversation'**
+  String get creationShowInConversation;
+
+  /// Link below a chat-generated image opening this item in the Creation gallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in Creation'**
+  String get creationShowInCreation;
+
+  /// Status line when a local chat image generation was stopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Image creation cancelled'**
+  String get creationChatCancelled;
+
+  /// Action that retries a cancelled chat image generation with its saved prompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate again'**
+  String get creationChatRegenerate;
+
+  /// Heading of the chat image generation failure card.
+  ///
+  /// In en, this message translates to:
+  /// **'Image unavailable'**
+  String get creationChatImageUnavailable;
+
+  /// Caption below a chat image gallery. Count is the number of available outputs, model is the image model display name, and ratio is the aspect ratio label.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{Generated 1 image} other{Generated {count} images}} · {model} · {ratio}'**
+  String creationChatResultCaption(int count, String model, String ratio);
+
+  /// Tooltip and accessibility label for the wand button in the creation composer that rewrites its prompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Enhance prompt'**
+  String get creationEnhance;
+
+  /// Heading at the top of the creation composer while an enhancement request is running.
+  ///
+  /// In en, this message translates to:
+  /// **'Rewriting prompt…'**
+  String get creationEnhanceLoading;
+
+  /// Heading at the top of the creation composer when the model has rewritten the prompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Rewritten prompt'**
+  String get creationEnhanceResult;
+
+  /// Disclosure button in the creation composer that shows or hides the original prompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Original'**
+  String get creationEnhanceOriginal;
+
+  /// Button in the prompt enhancement panel asking the same model to produce another rewrite.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another'**
+  String get creationEnhanceAgain;
+
+  /// Button that replaces the text in the creation composer with the rewritten prompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace'**
+  String get creationEnhanceApply;
+
+  /// Snackbar shown when the prompt enhancement model is missing or unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a prompt enhancement model in Default models.'**
+  String get creationEnhanceNeedsModel;
+
+  /// Description in the Creation category of Settings › Storage space.
+  ///
+  /// In en, this message translates to:
+  /// **'Images, videos, thumbnails, and reference images stored by Creation.'**
+  String get creationStorageHint;
+
+  /// Title of the date picker for bulk deletion of finished creations. The selected day is inclusive.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear creations through this date'**
+  String get creationStorageDate;
+
+  /// Destructive confirmation in Creation storage cleanup. Date is the locally formatted last day included in deletion.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete finished generations through {date}, including their images, videos, and reference copies? Images from these generations will also be unavailable in chat.'**
+  String creationStorageConfirm(String date);
+
+  /// Snackbar after a Creation storage cleanup. Count is the number of generation batches deleted.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No generations to clear} one{Cleared 1 generation} other{Cleared {count} generations}}'**
+  String creationStorageRemoved(int count);
+
+  /// Action in the Creation storage category that opens a date picker to delete older generation batches.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear by date'**
+  String get creationStorageClean;
+
+  /// Tooltip and mobile sheet title for the Creation topic-list menu with appearance and waiting-game preferences.
+  ///
+  /// In en, this message translates to:
+  /// **'Display and waiting games'**
+  String get creationDisplayAndGames;
+
+  /// Settings row and topic menu section label for choosing a game to play while a creation is generating.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting game'**
+  String get creationWaitGame;
+
+  /// Waiting-game option that chooses Snake or Brick Breaker for the current generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Random'**
+  String get creationGameRandom;
+
+  /// Waiting-game option that disables starting a game from waiting cards.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get creationGameOff;
+
+  /// Name of the Snake game available on Creation waiting cards and in the topic display menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Snake'**
+  String get creationGameSnake;
+
+  /// Name of the paddle-and-ball game available on Creation waiting cards and in the topic display menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Brick Breaker'**
+  String get creationGameBrick;
+
+  /// Screen reader description of the controls on an active Snake game board.
+  ///
+  /// In en, this message translates to:
+  /// **'Snake. Use arrow keys, W A S D, or swipes to steer. Press Space to pause or resume and Escape to exit.'**
+  String get creationGameSnakeControls;
+
+  /// Screen reader description of the controls on an active Brick Breaker game board.
+  ///
+  /// In en, this message translates to:
+  /// **'Brick Breaker. Drag the paddle or hold Left, Right, A, or D to move. Press Space to pause or resume and Escape to exit.'**
+  String get creationGameBrickControls;
+
+  /// Accessibility label for starting a game on an image waiting card. Game is the localized game name.
+  ///
+  /// In en, this message translates to:
+  /// **'Play {game} during image generation'**
+  String creationGameDuringImage(String game);
+
+  /// Accessibility label for starting a game on a video waiting card. Game is the localized game name.
+  ///
+  /// In en, this message translates to:
+  /// **'Play {game} during video generation'**
+  String creationGameDuringVideo(String game);
+
+  /// Screen reader announcement on the waiting-game board. Score is the player’s total points.
+  ///
+  /// In en, this message translates to:
+  /// **'Score {score}'**
+  String creationGameScore(int score);
+
+  /// Overlay on a paused waiting game. Score is the player’s total points.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused · {score}'**
+  String creationGamePaused(int score);
+
+  /// Overlay before returning to the waiting card after a game ends. Score is the player’s final points.
+  ///
+  /// In en, this message translates to:
+  /// **'Game over · {score}'**
+  String creationGameEnded(int score);
+
+  /// Brief overlay when a creation finishes while its waiting game is active. Score is the player’s final points.
+  ///
+  /// In en, this message translates to:
+  /// **'Creation ready · {score}'**
+  String creationGameCompleted(int score);
+
+  /// Compact disabled model label in the Creation composer when no image or video models are available.
+  ///
+  /// In en, this message translates to:
+  /// **'No models available'**
+  String get creationNoSelectableModels;
+
+  /// Shown in the Creation topic list when a search has no matching titles or prompts.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching topics'**
+  String get creationNoMatchingTopics;
+
+  /// Heading above the mobile Creation topic list. The count is the number of topics in the list.
+  ///
+  /// In en, this message translates to:
+  /// **'All topics {count}'**
+  String creationAllTopicCount(int count);
+
+  /// Creation empty-state heading when the current image mode has no available model, but the other mode is configured.
+  ///
+  /// In en, this message translates to:
+  /// **'No image generation models yet'**
+  String get creationNoImageModels;
+
+  /// Creation empty-state heading when the current video mode has no available model, but the other mode is configured.
+  ///
+  /// In en, this message translates to:
+  /// **'No video generation models yet'**
+  String get creationNoVideoModels;
+
+  /// Second line beside the first and last video frame slots in the Creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Add from recent images, files, or the clipboard'**
+  String get creationFrameSources;
+
+  /// First line beside the video frame slot when the selected model only accepts the first frame.
+  ///
+  /// In en, this message translates to:
+  /// **'{model} supports the first frame only'**
+  String creationFrameModelFirstOnly(String model);
+
+  /// Short provider group label for subscription sign-in in the Creation model picker.
+  ///
+  /// In en, this message translates to:
+  /// **'Subscription'**
+  String get creationSubscriptionLogin;
+
+  /// Second line of a Creation model choice, showing the number of reference images supported.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to {count} references'**
+  String creationModelReferenceLimit(int count);
+
+  /// Subtitle of an image generation model that does not accept reference images.
+  ///
+  /// In en, this message translates to:
+  /// **'Text to image'**
+  String get creationTextOnlyImage;
+
+  /// Subtitle of a video generation model that does not accept a reference frame.
+  ///
+  /// In en, this message translates to:
+  /// **'Text to video'**
+  String get creationTextOnlyVideo;
+
+  /// Label beside the custom output count stepper in the Creation composer.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom count'**
+  String get creationCustomCountLabel;
+
+  /// Category shown on a failed Creation job and in its request log. The kind is a stable error category. Use unavailable for a missing model or API endpoint.
+  ///
+  /// In en, this message translates to:
+  /// **'{kind, select, network{Network connection} rateLimited{Rate limit} server{Provider error} rejected{Request rejected} login{Sign-in required} unavailable{Model or endpoint unavailable} parameters{Invalid parameters} referenceTooLarge{Reference too large} download{Download failed} invalidResponse{Invalid response} other{Generation error}}'**
+  String creationFailureCategory(String kind);
+
+  /// Explanation on an interrupted generation card.
+  ///
+  /// In en, this message translates to:
+  /// **'The app closed before this request finished. Your prompt and settings are saved.'**
+  String get creationInterruptedHelp;
+
+  /// Explanation below a cancelled generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Your prompt and settings are saved. You can generate again at any time.'**
+  String get creationCancelledHelp;
+
+  /// Status line above a chat image while the waiting game shows its completion banner before revealing the finished image.
+  ///
+  /// In en, this message translates to:
+  /// **'Image created'**
+  String get creationChatImageReady;
 }
 
 class _AppLocalizationsDelegate
