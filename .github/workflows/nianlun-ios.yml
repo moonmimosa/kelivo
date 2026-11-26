@@ -6,6 +6,7 @@ name: Nianlun iOS build (unsigned IPA)
 #   与 bundle id 为 psyche.kelivo 的官方版仍是两个独立 App；侧载更新还需沿用原签名团队；
 # - fallback key 写空字符串，保证发布到 Release 的包里不带任何密钥；
 # - 产物：Actions 里的 iOS-IPA-nianlun，以及一个 prerelease（tag nianlun-ios-<序号>），用 Sideloadly 安装。
+# 此工作流同时放在默认分支，以便 GitHub 手动调度该分支构建。
 
 on:
   push:
